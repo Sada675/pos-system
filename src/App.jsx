@@ -5,6 +5,7 @@ import Dashboard from "./pages/Dashboard";
 import POS from "./pages/POS";
 import Products from "./pages/Products";
 import Categories from "./pages/Categories";
+import Purchases from "./pages/Purchases";
 
 function App() {
   return (
@@ -15,6 +16,7 @@ function App() {
           <Route path="/pos" element={<POS />} />
           <Route path="/products" element={<Products />} />
           <Route path="/categories" element={<Categories />} />
+          <Route path="/purchases" element={<Purchases />} />
         </Route>
       </Routes>
     </BrowserRouter>

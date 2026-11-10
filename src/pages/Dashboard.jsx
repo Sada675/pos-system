@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 
@@ -7,6 +8,8 @@ import {
   Package,
   Users,
   MoreHorizontal,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import {
@@ -65,15 +68,85 @@ const transactions = [
     amount: "Rs. 19,500",
     status: "Pending",
   },
+  {
+    id: "#INV-1005",
+    customer: "Ali Raza",
+    product: "Steel Rod 16mm",
+    amount: "Rs. 75,000",
+    status: "Paid",
+  },
+  {
+    id: "#INV-1006",
+    customer: "Usman Ahmed",
+    product: "GI Pipe",
+    amount: "Rs. 32,000",
+    status: "Paid",
+  },
+  {
+    id: "#INV-1007",
+    customer: "Hamza Khan",
+    product: "Steel Sheet",
+    amount: "Rs. 54,000",
+    status: "Pending",
+  },
+  {
+    id: "#INV-1008",
+    customer: "Ahsan Ali",
+    product: "Steel Angle",
+    amount: "Rs. 21,000",
+    status: "Paid",
+  },
+  {
+    id: "#INV-1009",
+    customer: "Fahad Malik",
+    product: "Steel Pipe 3 inch",
+    amount: "Rs. 38,000",
+    status: "Paid",
+  },
+  {
+    id: "#INV-1010",
+    customer: "Saad Ahmed",
+    product: "I Beam",
+    amount: "Rs. 90,000",
+    status: "Pending",
+  },
 ];
 
 function Dashboard() {
-  // Navigation function
   const navigate = useNavigate();
+
+  // Pagination States
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(5);
+
+  // Pagination Calculations
+  const totalPages = Math.ceil(transactions.length / itemsPerPage);
+
+  const startIndex = (currentPage - 1) * itemsPerPage;
+
+  const currentTransactions = transactions.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
+
+  // Previous Page
+  const handlePrevious = () => {
+    setCurrentPage((prev) => Math.max(prev - 1, 1));
+  };
+
+  // Next Page
+  const handleNext = () => {
+    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+  };
+
+  // Change Rows Per Page
+  const handleItemsPerPage = (e) => {
+    setItemsPerPage(Number(e.target.value));
+    setCurrentPage(1);
+  };
 
   return (
     <div className="space-y-8">
-
       {/* Page Heading */}
       <motion.div
         initial={{ opacity: 0, y: 15 }}
@@ -90,7 +163,6 @@ function Dashboard() {
           </p>
         </div>
 
-        {/* New Sale Button */}
         <button
           onClick={() => navigate("/pos")}
           className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700"
@@ -101,7 +173,6 @@ function Dashboard() {
 
       {/* Statistics */}
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-
         <StatCard
           title="Total Revenue"
           value="Rs. 845,000"
@@ -133,24 +204,19 @@ function Dashboard() {
           change="+10.8%"
           color="bg-purple-50 text-purple-600"
         />
-
       </div>
 
       {/* Chart and Summary */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-
         {/* Sales Chart */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm xl:col-span-2 md:p-6"
         >
-
           <div className="mb-6 flex items-center justify-between">
             <div>
-              <h2 className="font-bold text-slate-800">
-                Sales Overview
-              </h2>
+              <h2 className="font-bold text-slate-800">Sales Overview</h2>
 
               <p className="mt-1 text-xs text-slate-400">
                 Monthly revenue performance
@@ -163,10 +229,8 @@ function Dashboard() {
           </div>
 
           <div className="h-[280px] w-full">
-
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={salesData}>
-
                 <defs>
                   <linearGradient
                     id="salesGradient"
@@ -175,17 +239,9 @@ function Dashboard() {
                     x2="0"
                     y2="1"
                   >
-                    <stop
-                      offset="0%"
-                      stopColor="#2563eb"
-                      stopOpacity={0.25}
-                    />
+                    <stop offset="0%" stopColor="#2563eb" stopOpacity={0.25} />
 
-                    <stop
-                      offset="95%"
-                      stopColor="#2563eb"
-                      stopOpacity={0}
-                    />
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
                   </linearGradient>
                 </defs>
 
@@ -219,10 +275,8 @@ function Dashboard() {
                   fill="url(#salesGradient)"
                   animationDuration={1500}
                 />
-
               </AreaChart>
             </ResponsiveContainer>
-
           </div>
         </motion.div>
 
@@ -233,11 +287,8 @@ function Dashboard() {
           transition={{ delay: 0.15 }}
           className="rounded-2xl border border-slate-100 bg-white p-6 shadow-sm"
         >
-
           <div className="flex items-center justify-between">
-            <h2 className="font-bold text-slate-800">
-              Stock Summary
-            </h2>
+            <h2 className="font-bold text-slate-800">Stock Summary</h2>
 
             <MoreHorizontal className="text-slate-400" size={20} />
           </div>
@@ -247,7 +298,6 @@ function Dashboard() {
           </p>
 
           <div className="mt-8 space-y-7">
-
             {[
               {
                 name: "Steel Rods",
@@ -284,12 +334,13 @@ function Dashboard() {
                 <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                   <div
                     className={`h-full rounded-full ${item.color}`}
-                    style={{ width: `${item.percentage}%` }}
+                    style={{
+                      width: `${item.percentage}%`,
+                    }}
                   />
                 </div>
               </div>
             ))}
-
           </div>
 
           <button
@@ -298,9 +349,7 @@ function Dashboard() {
           >
             View Inventory
           </button>
-
         </motion.div>
-
       </div>
 
       {/* Recent Transactions */}
@@ -310,13 +359,10 @@ function Dashboard() {
         transition={{ delay: 0.2 }}
         className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm"
       >
-
+        {/* Table Header */}
         <div className="flex items-center justify-between border-b border-slate-100 p-5 md:p-6">
-
           <div>
-            <h2 className="font-bold text-slate-800">
-              Recent Transactions
-            </h2>
+            <h2 className="font-bold text-slate-800">Recent Transactions</h2>
 
             <p className="mt-1 text-xs text-slate-400">
               Latest sales from your store
@@ -329,31 +375,28 @@ function Dashboard() {
           >
             View All
           </button>
-
         </div>
 
+        {/* Transactions Table */}
         <div className="overflow-x-auto">
-
           <table className="w-full min-w-[650px] text-left">
-
             <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-400">
               <tr>
                 <th className="px-6 py-4 font-semibold">Invoice</th>
+
                 <th className="px-6 py-4 font-semibold">Customer</th>
+
                 <th className="px-6 py-4 font-semibold">Product</th>
+
                 <th className="px-6 py-4 font-semibold">Amount</th>
+
                 <th className="px-6 py-4 font-semibold">Status</th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-
-              {transactions.map((item) => (
-                <tr
-                  key={item.id}
-                  className="transition hover:bg-slate-50"
-                >
-
+              {currentTransactions.map((item) => (
+                <tr key={item.id} className="transition hover:bg-slate-50">
                   <td className="px-6 py-4 text-sm font-semibold text-blue-600">
                     {item.id}
                   </td>
@@ -381,18 +424,98 @@ function Dashboard() {
                       {item.status}
                     </span>
                   </td>
-
                 </tr>
               ))}
 
+              {currentTransactions.length === 0 && (
+                <tr>
+                  <td
+                    colSpan="5"
+                    className="px-6 py-10 text-center text-sm text-slate-400"
+                  >
+                    No transactions found.
+                  </td>
+                </tr>
+              )}
             </tbody>
-
           </table>
-
         </div>
 
-      </motion.div>
+        {/* Dynamic Pagination */}
+        <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-100 px-5 py-4 sm:flex-row md:px-6">
+          {/* Rows Per Page & Records Info */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Rows per page:</span>
 
+              <select
+                value={itemsPerPage}
+                onChange={handleItemsPerPage}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Showing{" "}
+              <span className="font-semibold text-slate-800">
+                {transactions.length === 0 ? 0 : startIndex + 1}
+              </span>
+              {" - "}
+              <span className="font-semibold text-slate-800">
+                {Math.min(startIndex + itemsPerPage, transactions.length)}
+              </span>
+              {" of "}
+              <span className="font-semibold text-slate-800">
+                {transactions.length}
+              </span>
+              {" records"}
+            </p>
+          </div>
+
+          {/* Pagination Buttons */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrevious}
+              disabled={currentPage === 1}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft size={16} />
+              Previous
+            </button>
+
+            {Array.from({ length: totalPages }, (_, index) => index + 1).map(
+              (page) => (
+                <button
+                  key={page}
+                  onClick={() => setCurrentPage(page)}
+                  className={`h-9 w-9 rounded-lg text-xs font-semibold transition ${
+                    currentPage === page
+                      ? "bg-blue-600 text-white shadow-md"
+                      : "border border-slate-200 text-slate-600 hover:bg-blue-50 hover:text-blue-600"
+                  }`}
+                >
+                  {page}
+                </button>
+              ),
+            )}
+
+            <button
+              onClick={handleNext}
+              disabled={currentPage === totalPages || totalPages === 0}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 }
