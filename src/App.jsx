@@ -6,6 +6,7 @@ import POS from "./pages/POS";
 import Products from "./pages/Products";
 import Categories from "./pages/Categories";
 import Purchases from "./pages/Purchases";
+import Inventory from "./pages/Inventory";
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
           <Route path="/products" element={<Products />} />
           <Route path="/categories" element={<Categories />} />
           <Route path="/purchases" element={<Purchases />} />
+          <Route path="/inventory" element={<Inventory />} />
         </Route>
       </Routes>
     </BrowserRouter>
