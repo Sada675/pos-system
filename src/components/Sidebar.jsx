@@ -12,7 +12,7 @@ import {
   Settings,
   LogOut,
   ChevronLeft,
-  Menu
+  Menu,
 } from "lucide-react";
 
 import { NavLink } from "react-router-dom";
@@ -36,50 +36,43 @@ function Sidebar({ collapsed, setCollapsed }) {
     <motion.aside
       animate={{ width: collapsed ? 85 : 260 }}
       transition={{ duration: 0.3 }}
-      className="fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-slate-200 bg-white"
+      className="fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-white/10 bg-[#123c3a]"
     >
       {/* Logo */}
-      <div className="flex h-20 items-center justify-between border-b border-slate-100 px-5">
-
+      <div className="flex h-20 items-center justify-between border-b border-white/10 px-5">
         <div className="flex items-center gap-3 overflow-hidden">
-
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#d1e9dc] text-[#123c3a] shadow-sm">
             <Warehouse size={23} />
           </div>
 
           {!collapsed && (
             <div>
-              <h1 className="text-lg font-bold text-slate-900">
-                SteelFlow
-              </h1>
-              <p className="text-[10px] font-medium tracking-widest text-slate-400">
+              <h1 className="text-lg font-bold text-white">SteelFlow</h1>
+
+              <p className="text-[10px] font-medium tracking-widest text-[#a9c8b8]">
                 POS MANAGEMENT
               </p>
             </div>
           )}
-
         </div>
 
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="hidden rounded-lg p-2 text-slate-400 hover:bg-slate-100 lg:block"
+          className="hidden rounded-lg p-2 text-[#b5cec2] transition hover:bg-white/10 hover:text-white lg:block"
         >
           {collapsed ? <Menu size={18} /> : <ChevronLeft size={18} />}
         </button>
-
       </div>
 
       {/* Menu */}
       <div className="flex-1 overflow-y-auto px-3 py-6">
-
         {!collapsed && (
-          <p className="mb-4 px-3 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
+          <p className="mb-4 px-3 text-[11px] font-semibold uppercase tracking-widest text-[#8eafa0]">
             Main Menu
           </p>
         )}
 
         <nav className="space-y-1">
-
           {menuItems.map((item) => {
             const Icon = item.icon;
 
@@ -92,41 +85,53 @@ function Sidebar({ collapsed, setCollapsed }) {
                 className={({ isActive }) =>
                   `group flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200 ${
                     isActive
-                      ? "bg-blue-600 text-white shadow-lg shadow-blue-200"
-                      : "text-slate-500 hover:bg-blue-50 hover:text-blue-600"
+                      ? "bg-[#d1e9dc] text-[#123c3a] shadow-md shadow-black/10"
+                      : "text-[#d5e5de] hover:bg-white/10 hover:text-white"
                   }`
                 }
               >
-                <Icon size={20} className="shrink-0" />
+                {({ isActive }) => (
+                  <>
+                    <Icon
+                      size={20}
+                      className={`shrink-0 ${
+                        isActive
+                          ? "text-[#123c3a]"
+                          : "text-[#a9c8b8] group-hover:text-white"
+                      }`}
+                    />
 
-                {!collapsed && <span>{item.name}</span>}
+                    {!collapsed && <span>{item.name}</span>}
+                  </>
+                )}
               </NavLink>
             );
           })}
-
         </nav>
-
       </div>
 
       {/* Bottom */}
-      <div className="border-t border-slate-100 p-3">
-
+      <div className="border-t border-white/10 p-3">
         <NavLink
           to="/settings"
           title={collapsed ? "Settings" : ""}
-          className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-500 transition hover:bg-slate-100"
+          className={({ isActive }) =>
+            `flex items-center gap-3 rounded-xl px-3 py-3 text-sm transition ${
+              isActive
+                ? "bg-[#d1e9dc] text-[#123c3a]"
+                : "text-[#d5e5de] hover:bg-white/10 hover:text-white"
+            }`
+          }
         >
           <Settings size={20} />
           {!collapsed && "Settings"}
         </NavLink>
 
-        <button className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-red-500 transition hover:bg-red-50">
+        <button className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-[#f0aaa2] transition hover:bg-red-400/10 hover:text-[#ffb8af]">
           <LogOut size={20} />
           {!collapsed && "Logout"}
         </button>
-
       </div>
-
     </motion.aside>
   );
 }

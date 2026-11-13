@@ -7,6 +7,11 @@ import Products from "./pages/Products";
 import Categories from "./pages/Categories";
 import Purchases from "./pages/Purchases";
 import Inventory from "./pages/Inventory";
+import Customers from "./pages/Customers";
+import Suppliers from "./pages/Suppliers";
+import Expenses from "./pages/Expenses";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 
 function App() {
   return (
@@ -19,6 +24,11 @@ function App() {
           <Route path="/categories" element={<Categories />} />
           <Route path="/purchases" element={<Purchases />} />
           <Route path="/inventory" element={<Inventory />} />
+          <Route path="/customers" element={<Customers />} />
+          <Route path="/suppliers" element={<Suppliers />} />
+          <Route path="/expenses" element={<Expenses />} />
+          <Route path="/reports" element={<Reports />} />
+          <Route path="/settings" element={<Settings />} />
         </Route>
       </Routes>
     </BrowserRouter>
