@@ -20,6 +20,8 @@ import {
   FileText,
   CalendarDays,
   AlertCircle,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 const PURCHASES_KEY = "steel-store-purchases";
@@ -58,7 +60,10 @@ const getInitialForm = () => ({
 function Purchases() {
   const { products = [], setProducts, categories = [] } = useProducts();
 
-  // Purchases from localStorage
+  // -----------------------------------
+  // PURCHASES FROM LOCAL STORAGE
+  // -----------------------------------
+
   const [purchases, setPurchases] = useState(() => {
     try {
       const saved = localStorage.getItem(PURCHASES_KEY);
@@ -73,11 +78,24 @@ function Purchases() {
     localStorage.setItem(PURCHASES_KEY, JSON.stringify(purchases));
   }, [purchases]);
 
-  // Search and filters
+  // -----------------------------------
+  // SEARCH AND FILTERS
+  // -----------------------------------
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  // Modal states
+  // -----------------------------------
+  // PAGINATION
+  // -----------------------------------
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(8);
+
+  // -----------------------------------
+  // MODAL STATES
+  // -----------------------------------
+
   const [showModal, setShowModal] = useState(false);
   const [selectedPurchase, setSelectedPurchase] = useState(null);
 
@@ -151,6 +169,40 @@ function Purchases() {
   }, [purchases, search, statusFilter]);
 
   // -----------------------------------
+  // PAGINATION LOGIC
+  // -----------------------------------
+
+  const totalPages = Math.ceil(filteredPurchases.length / itemsPerPage);
+
+  const startIndex = (currentPage - 1) * itemsPerPage;
+
+  const endIndex = Math.min(
+    startIndex + itemsPerPage,
+    filteredPurchases.length,
+  );
+
+  const paginatedPurchases = filteredPurchases.slice(startIndex, endIndex);
+
+  const pageNumbers = Array.from(
+    { length: totalPages },
+    (_, index) => index + 1,
+  );
+
+  // Reset pagination when search, filter or page size changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, itemsPerPage]);
+
+  // Prevent invalid page after records change
+  useEffect(() => {
+    if (totalPages === 0) {
+      setCurrentPage(1);
+    } else if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  // -----------------------------------
   // FORM TOTALS
   // -----------------------------------
 
@@ -198,8 +250,7 @@ function Purchases() {
         [field]: value,
       };
 
-      // When an existing product is selected,
-      // automatically load its details.
+      // Automatically load existing product details
       if (field === "productName") {
         const existingProduct = products.find(
           (product) =>
@@ -242,7 +293,6 @@ function Purchases() {
 
       items: [
         ...previous.items,
-
         {
           productName: "",
           category: "",
@@ -356,7 +406,10 @@ function Purchases() {
       return;
     }
 
-    // Prepare purchase items
+    // -----------------------------------
+    // PREPARE PURCHASE ITEMS
+    // -----------------------------------
+
     const selectedItems = formData.items.map((item) => {
       const existingProduct = products.find(
         (product) =>
@@ -460,7 +513,6 @@ function Purchases() {
 
           purchasePrice: Number(weightedAverage.toFixed(2)),
 
-          // Update only when user provided selling price
           ...(item.sellingPrice > 0 && {
             sellingPrice: item.sellingPrice,
           }),
@@ -541,7 +593,10 @@ function Purchases() {
     // Update ProductsContext
     setProducts(updatedProducts);
 
-    // Save stock history
+    // -----------------------------------
+    // SAVE STOCK HISTORY
+    // -----------------------------------
+
     try {
       const oldHistory = JSON.parse(
         localStorage.getItem(STOCK_HISTORY_KEY) || "[]",
@@ -555,8 +610,14 @@ function Purchases() {
       console.error("Stock history error:", error);
     }
 
-    // Save purchase
+    // -----------------------------------
+    // SAVE PURCHASE
+    // -----------------------------------
+
     setPurchases((previous) => [newPurchase, ...previous]);
+
+    // Show first page after adding purchase
+    setCurrentPage(1);
 
     setShowModal(false);
 
@@ -645,6 +706,7 @@ function Purchases() {
   const handleCardClick = (filter) => {
     setStatusFilter(filter);
     setSearch("");
+    setCurrentPage(1);
   };
 
   // -----------------------------------
@@ -749,6 +811,7 @@ function Purchases() {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
+            {/* SEARCH */}
             <div className="relative">
               <Search
                 size={17}
@@ -764,6 +827,7 @@ function Purchases() {
               />
             </div>
 
+            {/* STATUS FILTER */}
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -804,8 +868,8 @@ function Purchases() {
             </thead>
 
             <tbody className="divide-y divide-slate-100">
-              {filteredPurchases.length > 0 ? (
-                filteredPurchases.map((purchase) => (
+              {paginatedPurchases.length > 0 ? (
+                paginatedPurchases.map((purchase) => (
                   <tr
                     key={purchase.id}
                     className="transition hover:bg-slate-50"
@@ -883,19 +947,95 @@ function Purchases() {
           </table>
         </div>
 
-        <div className="flex flex-col justify-between gap-2 border-t border-slate-100 px-6 py-4 text-sm text-slate-500 sm:flex-row">
-          <span>
-            Showing {filteredPurchases.length} of {purchases.length} purchases
-          </span>
+        {/* PAGINATION */}
+        <div className="flex flex-col justify-between gap-4 border-t border-slate-100 p-4 lg:flex-row lg:items-center">
+          {/* LEFT SIDE: ROWS PER PAGE + SHOWING */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            {/* ROWS PER PAGE */}
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs font-medium text-slate-500">
+                Rows per page
+              </span>
 
-          {statusFilter !== "All" && (
+              <select
+                value={itemsPerPage}
+                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
+              >
+                {[6, 8, 12, 24, 48].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* SHOWING RECORDS */}
+            <p className="text-xs font-medium text-slate-500">
+              Showing{" "}
+              <span className="font-bold text-slate-700">
+                {filteredPurchases.length === 0 ? 0 : startIndex + 1}–{endIndex}
+              </span>{" "}
+              of{" "}
+              <span className="font-bold text-slate-700">
+                {filteredPurchases.length}
+              </span>{" "}
+              purchases
+            </p>
+
+            {/* CLEAR FILTER */}
+            {statusFilter !== "All" && (
+              <button
+                onClick={() => {
+                  setStatusFilter("All");
+                  setCurrentPage(1);
+                }}
+                className="text-xs font-semibold text-blue-600 transition hover:text-blue-700"
+              >
+                Clear Filter
+              </button>
+            )}
+          </div>
+
+          {/* RIGHT SIDE: PAGE NAVIGATION */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* PREVIOUS */}
             <button
-              onClick={() => setStatusFilter("All")}
-              className="font-semibold text-blue-600 hover:text-blue-700"
+              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+              disabled={currentPage === 1 || totalPages === 0}
+              title="Previous Page"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Clear Filter
+              <ChevronLeft size={17} />
             </button>
-          )}
+
+            {/* PAGE NUMBERS */}
+            {pageNumbers.map((page) => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition ${
+                  currentPage === page
+                    ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+
+            {/* NEXT */}
+            <button
+              onClick={() =>
+                setCurrentPage((page) => Math.min(totalPages, page + 1))
+              }
+              disabled={currentPage >= totalPages || totalPages === 0}
+              title="Next Page"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronRight size={17} />
+            </button>
+          </div>
         </div>
       </div>
 
