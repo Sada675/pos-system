@@ -17,7 +17,6 @@ import {
   ChevronRight,
   PackageX,
   CircleDollarSign,
-  TrendingUp,
   SlidersHorizontal,
   ArrowUpRight,
 } from "lucide-react";
@@ -43,10 +42,6 @@ const emptyForm = {
 const formatCurrency = (amount) =>
   `Rs. ${Number(amount || 0).toLocaleString("en-PK")}`;
 
-// ===================================
-// STOCK STATUS HELPER
-// ===================================
-
 const getStockStatus = (product) => {
   const stock = Number(product.stock) || 0;
   const minStock = Number(product.minStock) || 0;
@@ -70,8 +65,8 @@ function Products() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState(emptyForm);
 
+  const [form, setForm] = useState(emptyForm);
   const [isCustomUnit, setIsCustomUnit] = useState(false);
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -159,11 +154,18 @@ function Products() {
   }, [categories, categoryFilter]);
 
   // ===================================
-  // STAT CARD FILTER HANDLER
+  // FILTER HANDLERS
   // ===================================
 
   const handleStatFilter = (filter) => {
     setStockFilter(filter);
+    setCurrentPage(1);
+  };
+
+  const resetFilters = () => {
+    setSearch("");
+    setCategoryFilter("All");
+    setStockFilter("All");
     setCurrentPage(1);
   };
 
@@ -187,7 +189,6 @@ function Products() {
     setEditingId(product.id);
 
     const productUnit = product.unit || "KG";
-
     const isStandardUnit = UNIT_OPTIONS.includes(productUnit);
 
     setIsCustomUnit(!isStandardUnit);
@@ -195,11 +196,8 @@ function Products() {
     setForm({
       ...emptyForm,
       ...product,
-
       unit: isStandardUnit ? productUnit : "Custom",
-
       customUnit: isStandardUnit ? "" : productUnit,
-
       purchasePrice: String(product.purchasePrice ?? ""),
       sellingPrice: String(product.sellingPrice ?? ""),
       stock: String(product.stock ?? ""),
@@ -221,7 +219,7 @@ function Products() {
   };
 
   // ===================================
-  // HANDLE INPUT CHANGE
+  // INPUT HANDLER
   // ===================================
 
   const handleChange = (e) => {
@@ -230,19 +228,11 @@ function Products() {
     setForm((previous) => ({
       ...previous,
       [name]: value,
+      ...(name === "unit" && value !== "Custom" ? { customUnit: "" } : {}),
     }));
 
-    // Custom unit selection
     if (name === "unit") {
       setIsCustomUnit(value === "Custom");
-
-      if (value !== "Custom") {
-        setForm((previous) => ({
-          ...previous,
-          unit: value,
-          customUnit: "",
-        }));
-      }
     }
   };
 
@@ -258,10 +248,8 @@ function Products() {
     const stock = Number(form.stock);
     const minStock = Number(form.minStock);
 
-    // Get actual unit
     const finalUnit = isCustomUnit ? form.customUnit.trim() : form.unit;
 
-    // Required fields validation
     if (
       !form.name.trim() ||
       !form.size.trim() ||
@@ -276,12 +264,11 @@ function Products() {
       return;
     }
 
-    if (finalUnit === "Custom") {
+    if (!finalUnit || finalUnit === "Custom") {
       alert("Please enter a valid custom unit.");
       return;
     }
 
-    // Category validation
     const categoryExists = categories.some(
       (category) => category.name === form.category,
     );
@@ -291,7 +278,6 @@ function Products() {
       return;
     }
 
-    // Number validation
     if (
       !Number.isFinite(purchasePrice) ||
       !Number.isFinite(sellingPrice) ||
@@ -306,22 +292,17 @@ function Products() {
       return;
     }
 
-    // Final product data
     const productData = {
       name: form.name.trim(),
       category: form.category,
       size: form.size.trim(),
-
       purchasePrice,
       sellingPrice,
       stock,
       minStock,
-
-      // Save actual unit, not Custom
       unit: finalUnit,
     };
 
-    // UPDATE PRODUCT
     if (editingId !== null) {
       setProducts((previous) =>
         previous.map((product) =>
@@ -334,10 +315,7 @@ function Products() {
             : product,
         ),
       );
-    }
-
-    // ADD PRODUCT
-    else {
+    } else {
       const newProduct = {
         ...productData,
         id: Date.now(),
@@ -366,17 +344,6 @@ function Products() {
   };
 
   // ===================================
-  // RESET FILTERS
-  // ===================================
-
-  const resetFilters = () => {
-    setSearch("");
-    setCategoryFilter("All");
-    setStockFilter("All");
-    setCurrentPage(1);
-  };
-
-  // ===================================
   // PAGINATION HANDLERS
   // ===================================
 
@@ -393,45 +360,41 @@ function Products() {
   // ===================================
 
   return (
-    <div className="space-y-7">
+    <div className="space-y-6">
       {/* HEADER */}
 
-      <div className="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <div className="mb-2 flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-blue-600" />
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-blue-600">
+            Inventory Management
+          </p>
 
-            <p className="text-sm font-semibold text-blue-600">
-              Inventory Management
-            </p>
-          </div>
-
-          <h1 className="text-2xl font-bold tracking-tight text-slate-800 sm:text-3xl">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-800">
             Products
           </h1>
 
-          <p className="mt-2 text-sm text-slate-500">
-            Manage your products, pricing and inventory levels.
+          <p className="mt-1 text-sm text-slate-500">
+            Manage your products, pricing and stock.
           </p>
         </div>
 
         <button
           onClick={openAddModal}
           disabled={categories.length === 0}
-          className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-200 transition hover:-translate-y-0.5 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <Plus size={19} />
-          Add New Product
+          <Plus size={18} />
+          Add Product
         </button>
       </div>
 
-      {/* CLICKABLE STATISTICS */}
+      {/* STATISTICS */}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatBox
           title="Total Products"
           value={totalProducts}
-          description="Products registered"
+          description="Registered products"
           icon={Package}
           color="blue"
           active={stockFilter === "All"}
@@ -441,7 +404,7 @@ function Products() {
         <StatBox
           title="Stock Value"
           value={formatCurrency(totalStockValue)}
-          description="Based on purchase prices"
+          description="Purchase price value"
           icon={CircleDollarSign}
           color="emerald"
           onClick={() => handleStatFilter("All")}
@@ -450,7 +413,7 @@ function Products() {
         <StatBox
           title="Low Stock"
           value={lowStockProducts}
-          description="Products need restocking"
+          description="Need restocking"
           icon={AlertTriangle}
           color="orange"
           active={stockFilter === "Low Stock"}
@@ -470,56 +433,59 @@ function Products() {
 
       {/* PRODUCTS SECTION */}
 
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         {/* SECTION HEADER */}
 
-        <div className="border-b border-slate-100 p-5 sm:p-6">
-          <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+        <div className="border-b border-slate-100 p-4 sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold text-slate-800">All Products</h2>
+              <h2 className="text-base font-bold text-slate-800">
+                All Products
+              </h2>
 
-              <p className="mt-1 text-xs text-slate-400">
-                Click any product card to view or edit its details.
+              <p className="mt-1 text-xs text-slate-500">
+                {filteredProducts.length} products found
               </p>
             </div>
 
-            <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-600">
-              {filteredProducts.length} Products Found
-            </div>
+            {(search || categoryFilter !== "All" || stockFilter !== "All") && (
+              <button
+                onClick={resetFilters}
+                className="text-xs font-semibold text-red-500 hover:text-red-700"
+              >
+                Clear filters
+              </button>
+            )}
           </div>
 
-          {/* SEARCH AND CATEGORY */}
+          {/* SEARCH AND FILTERS */}
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-            {/* SEARCH */}
-
-            <div className="relative">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <div className="relative md:col-span-1">
               <Search
-                size={18}
+                size={17}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               />
 
               <input
                 type="text"
-                placeholder="Search name, size or category..."
+                placeholder="Search products..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-50"
               />
             </div>
 
-            {/* CATEGORY */}
-
             <div className="relative">
               <Filter
-                size={17}
+                size={16}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               />
 
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-600 outline-none transition focus:border-blue-500"
+                className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-600 outline-none focus:border-blue-500"
               >
                 <option value="All">All Categories</option>
 
@@ -531,18 +497,16 @@ function Products() {
               </select>
             </div>
 
-            {/* STOCK FILTER */}
-
             <div className="relative">
               <SlidersHorizontal
-                size={17}
+                size={16}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
               />
 
               <select
                 value={stockFilter}
                 onChange={(e) => setStockFilter(e.target.value)}
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-3 pl-10 pr-4 text-sm text-slate-600 outline-none transition focus:border-blue-500"
+                className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-600 outline-none focus:border-blue-500"
               >
                 <option value="All">All Stock Status</option>
                 <option value="In Stock">In Stock</option>
@@ -551,54 +515,13 @@ function Products() {
               </select>
             </div>
           </div>
-
-          {/* QUICK FILTERS */}
-
-          <div className="mt-5 flex flex-wrap items-center gap-2">
-            <span className="mr-1 text-xs font-semibold text-slate-400">
-              Quick filters:
-            </span>
-
-            {[
-              { label: "All", value: "All" },
-              { label: "In Stock", value: "In Stock" },
-              { label: "Low Stock", value: "Low Stock" },
-              { label: "Out of Stock", value: "Out of Stock" },
-            ].map((filter) => (
-              <button
-                key={filter.value}
-                type="button"
-                onClick={() => handleStatFilter(filter.value)}
-                className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
-                  stockFilter === filter.value
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "bg-slate-100 text-slate-500 hover:bg-slate-200"
-                }`}
-              >
-                {filter.label}
-              </button>
-            ))}
-
-            {(search || categoryFilter !== "All" || stockFilter !== "All") && (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="ml-auto text-xs font-semibold text-red-500 transition hover:text-red-700"
-              >
-                Clear Filters
-              </button>
-            )}
-          </div>
         </div>
 
-        {/* PRODUCT CARDS */}
+        {/* PRODUCT LIST */}
 
-        <div className="bg-slate-50/50 p-5 sm:p-6">
+        <div className="bg-slate-50/60 p-3 sm:p-4">
           {currentProducts.length > 0 ? (
-            <motion.div
-              layout
-              className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
-            >
+            <div className="space-y-2">
               <AnimatePresence mode="popLayout">
                 {currentProducts.map((product) => (
                   <ProductCard
@@ -610,28 +533,28 @@ function Products() {
                   />
                 ))}
               </AnimatePresence>
-            </motion.div>
+            </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-5 py-16 text-center">
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
-                <Package size={30} />
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-14 text-center">
+              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-400">
+                <Package size={25} />
               </div>
 
-              <h3 className="mt-4 font-bold text-slate-700">
+              <h3 className="mt-3 font-semibold text-slate-700">
                 No Products Found
               </h3>
 
-              <p className="mx-auto mt-2 max-w-sm text-sm text-slate-400">
+              <p className="mt-1 text-sm text-slate-400">
                 {products.length === 0
-                  ? "Your inventory is empty. Add your first product to get started."
-                  : "No products match your search or selected filters. Try changing your filters."}
+                  ? "Your inventory is empty. Add your first product."
+                  : "Try changing your search or filters."}
               </p>
 
               {products.length === 0 ? (
                 <button
                   onClick={openAddModal}
                   disabled={categories.length === 0}
-                  className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:opacity-50"
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                 >
                   <Plus size={17} />
                   Add First Product
@@ -639,7 +562,7 @@ function Products() {
               ) : (
                 <button
                   onClick={resetFilters}
-                  className="mt-5 rounded-xl bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-200"
+                  className="mt-4 text-sm font-semibold text-blue-600 hover:text-blue-700"
                 >
                   Clear Filters
                 </button>
@@ -651,61 +574,91 @@ function Products() {
         {/* PAGINATION */}
 
         {filteredProducts.length > 0 && (
-          <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-100 px-5 py-4 sm:flex-row sm:px-6">
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-4 border-t border-slate-100 bg-white px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
+            {/* LEFT SIDE: ROWS + RECORD INFO */}
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Show:</span>
+                <span className="text-xs font-medium text-slate-500">
+                  Rows per page:
+                </span>
 
                 <select
                   value={itemsPerPage}
                   onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 outline-none focus:border-blue-500"
+                  className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-50"
                 >
-                  <option value={6}>6</option>
-                  <option value={8}>8</option>
-                  <option value={12}>12</option>
-                  <option value={24}>24</option>
-                  <option value={48}>48</option>
+                  {[6, 8, 12, 24, 48].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
                 </select>
               </div>
 
+              <div className="h-4 w-px bg-slate-200" />
+
               <p className="text-xs text-slate-500">
                 Showing{" "}
-                <span className="font-bold text-slate-800">
-                  {startIndex + 1}
-                </span>
-                {" - "}
-                <span className="font-bold text-slate-800">
+                <span className="font-semibold text-slate-800">
+                  {startIndex + 1} -{" "}
                   {Math.min(startIndex + itemsPerPage, filteredProducts.length)}
-                </span>
-                {" of "}
-                <span className="font-bold text-slate-800">
+                </span>{" "}
+                of{" "}
+                <span className="font-semibold text-slate-800">
                   {filteredProducts.length}
-                </span>
+                </span>{" "}
+                products
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            {/* RIGHT SIDE: PAGE NAVIGATION */}
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {/* PREVIOUS */}
+
               <button
+                type="button"
                 onClick={handlePrevious}
                 disabled={currentPage === 1}
-                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
               >
-                <ChevronLeft size={16} />
-                Previous
+                <ChevronLeft size={15} />
+                <span>Previous</span>
               </button>
 
-              <span className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600">
-                {currentPage} / {totalPages}
-              </span>
+              {/* PAGE NUMBERS */}
+
+              <div className="flex items-center gap-1">
+                {Array.from(
+                  { length: totalPages },
+                  (_, index) => index + 1,
+                ).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    onClick={() => setCurrentPage(page)}
+                    className={`flex h-8 min-w-8 items-center justify-center rounded-md px-2 text-xs font-semibold transition ${
+                      currentPage === page
+                        ? "bg-blue-600 text-white shadow-sm shadow-blue-200"
+                        : "border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
+
+              {/* NEXT */}
 
               <button
+                type="button"
                 onClick={handleNext}
                 disabled={currentPage === totalPages}
-                className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
               >
-                Next
-                <ChevronRight size={16} />
+                <span>Next</span>
+                <ChevronRight size={15} />
               </button>
             </div>
           </div>
@@ -718,38 +671,38 @@ function Products() {
         {modalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.96, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl"
+              exit={{ opacity: 0, scale: 0.96, y: 15 }}
+              className="my-auto w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-2xl"
             >
               {/* MODAL HEADER */}
 
-              <div className="flex items-center justify-between border-b border-slate-100 p-5 sm:p-6">
-                <div>
-                  <div className="mb-1 flex items-center gap-2">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                      {editingId !== null ? (
-                        <Pencil size={17} />
-                      ) : (
-                        <Plus size={19} />
-                      )}
-                    </div>
-
-                    <h2 className="text-lg font-bold text-slate-800">
-                      {editingId !== null ? "Edit Product" : "Add New Product"}
-                    </h2>
+              <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                    {editingId !== null ? (
+                      <Pencil size={18} />
+                    ) : (
+                      <Plus size={20} />
+                    )}
                   </div>
 
-                  <p className="text-xs text-slate-400">
-                    Enter your product information below.
-                  </p>
+                  <div>
+                    <h2 className="font-bold text-slate-800">
+                      {editingId !== null ? "Edit Product" : "Add New Product"}
+                    </h2>
+
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      Enter your product information.
+                    </p>
+                  </div>
                 </div>
 
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="rounded-xl bg-slate-100 p-2 text-slate-500 transition hover:bg-red-50 hover:text-red-500"
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-red-50 hover:text-red-500"
                 >
                   <X size={20} />
                 </button>
@@ -758,7 +711,7 @@ function Products() {
               {/* FORM */}
 
               <form onSubmit={handleSubmit}>
-                <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2 sm:p-6">
+                <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
                   <FormField label="Product Name" required>
                     <input
                       type="text"
@@ -801,8 +754,6 @@ function Products() {
                     />
                   </FormField>
 
-                  {/* UNIT SELECT */}
-
                   <FormField label="Unit" required>
                     <select
                       name="unit"
@@ -820,14 +771,12 @@ function Products() {
                       <option value="Custom">+ Add Custom Unit</option>
                     </select>
 
-                    {/* CUSTOM UNIT INPUT */}
-
                     <AnimatePresence>
                       {isCustomUnit && (
                         <motion.div
-                          initial={{ opacity: 0, height: 0, y: -5 }}
-                          animate={{ opacity: 1, height: "auto", y: 0 }}
-                          exit={{ opacity: 0, height: 0, y: -5 }}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
                           className="mt-3 overflow-hidden"
                         >
                           <input
@@ -835,14 +784,14 @@ function Products() {
                             name="customUnit"
                             value={form.customUnit}
                             onChange={handleChange}
-                            placeholder="Enter custom unit e.g. Dozen, Roll, Bag"
+                            placeholder="Enter custom unit"
                             required={isCustomUnit}
                             autoFocus
-                            className="form-input border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                            className="form-input"
                           />
 
-                          <p className="mt-1.5 text-xs text-slate-400">
-                            Enter the unit in which this product is measured.
+                          <p className="mt-1 text-xs text-slate-400">
+                            e.g. Dozen, Roll, Bag
                           </p>
                         </motion.div>
                       )}
@@ -888,7 +837,7 @@ function Products() {
                       name="stock"
                       value={form.stock}
                       onChange={handleChange}
-                      placeholder="Enter available quantity"
+                      placeholder="Enter quantity"
                       min="0"
                       step="0.01"
                       required
@@ -913,11 +862,11 @@ function Products() {
 
                 {/* MODAL FOOTER */}
 
-                <div className="flex flex-col-reverse gap-3 border-t border-slate-100 bg-slate-50 p-5 sm:flex-row sm:justify-end sm:p-6">
+                <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end">
                   <button
                     type="button"
                     onClick={closeModal}
-                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
+                    className="rounded-lg border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
                   >
                     Cancel
                   </button>
@@ -925,10 +874,9 @@ function Products() {
                   <button
                     type="submit"
                     disabled={categories.length === 0}
-                    className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-md shadow-blue-200 transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Save size={17} />
-
+                    <Save size={16} />
                     {editingId !== null ? "Update Product" : "Save Product"}
                   </button>
                 </div>
@@ -942,7 +890,7 @@ function Products() {
 }
 
 // ===================================
-// PRODUCT CARD
+// PRODUCT ROW
 // ===================================
 
 function ProductCard({ product, status, onEdit, onDelete }) {
@@ -950,16 +898,22 @@ function ProductCard({ product, status, onEdit, onDelete }) {
     "In Stock": {
       badge: "bg-emerald-50 text-emerald-700",
       dot: "bg-emerald-500",
+      icon: "bg-emerald-50 text-emerald-600",
+      bar: "bg-emerald-500",
     },
 
     "Low Stock": {
       badge: "bg-orange-50 text-orange-700",
       dot: "bg-orange-500",
+      icon: "bg-orange-50 text-orange-600",
+      bar: "bg-orange-500",
     },
 
     "Out of Stock": {
       badge: "bg-red-50 text-red-700",
       dot: "bg-red-500",
+      icon: "bg-red-50 text-red-600",
+      bar: "bg-red-500",
     },
   };
 
@@ -968,210 +922,133 @@ function ProductCard({ product, status, onEdit, onDelete }) {
   const stock = Number(product.stock) || 0;
   const minStock = Number(product.minStock) || 0;
 
-  const profit =
-    Number(product.sellingPrice || 0) - Number(product.purchasePrice || 0);
+  const purchasePrice = Number(product.purchasePrice) || 0;
+  const sellingPrice = Number(product.sellingPrice) || 0;
 
+  const profit = sellingPrice - purchasePrice;
   const unit = product.unit || "KG";
+
+  const stockPercentage =
+    stock <= 0
+      ? 0
+      : minStock > 0
+        ? Math.min((stock / (minStock * 3)) * 100, 100)
+        : 100;
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 15 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
+      exit={{ opacity: 0, x: -10 }}
       transition={{ duration: 0.2 }}
-      onClick={onEdit}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onEdit();
-        }
-      }}
-      role="button"
-      tabIndex={0}
-      aria-label={`Edit ${product.name}`}
-      className="group cursor-pointer rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl hover:shadow-blue-100/50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+      className="rounded-lg border border-slate-200 bg-white p-4 transition hover:border-blue-200"
     >
-      {/* CARD HEADER */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
+        {/* PRODUCT INFO */}
 
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3 lg:w-[25%]">
           <div
-            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl transition ${
-              status === "Out of Stock"
-                ? "bg-red-50 text-red-500"
-                : status === "Low Stock"
-                  ? "bg-orange-50 text-orange-500"
-                  : "bg-blue-50 text-blue-600"
-            }`}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${currentStatus.icon}`}
           >
-            <Package size={23} />
+            <Package size={21} />
           </div>
 
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-bold text-slate-800 transition group-hover:text-blue-600">
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-sm font-bold text-slate-800">
               {product.name}
             </h3>
 
-            <p className="mt-1 text-xs text-slate-400">{product.category}</p>
+            <p className="mt-0.5 truncate text-xs text-slate-500">
+              {product.category}
+              <span className="mx-1.5 text-slate-300">•</span>
+              {product.size}
+            </p>
+
+            <span
+              className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold ${currentStatus.badge}`}
+            >
+              <span
+                className={`h-1.5 w-1.5 rounded-full ${currentStatus.dot}`}
+              />
+              {status}
+            </span>
           </div>
         </div>
 
-        <span
-          className={`flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[10px] font-bold ${currentStatus.badge}`}
-        >
-          <span className={`h-1.5 w-1.5 rounded-full ${currentStatus.dot}`} />
+        {/* STOCK */}
 
-          {status}
-        </span>
-      </div>
+        <div className="flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-500">Available Stock</span>
 
-      {/* PRODUCT SIZE */}
+            <span className="text-sm font-bold text-slate-800">
+              {stock.toLocaleString()}{" "}
+              <span className="text-xs font-medium text-slate-400">{unit}</span>
+            </span>
+          </div>
 
-      <div className="mt-5 flex items-center justify-between rounded-xl bg-slate-50 px-3 py-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Product Size
-          </p>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className={`h-full rounded-full transition-all ${currentStatus.bar}`}
+              style={{ width: `${stockPercentage}%` }}
+            />
+          </div>
 
-          <p className="mt-1 text-sm font-bold text-slate-700">
-            {product.size}
+          <p className="mt-1.5 text-[10px] text-slate-400">
+            Minimum level: {minStock} {unit}
           </p>
         </div>
 
-        <div className="text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Unit
-          </p>
+        {/* PRICES */}
 
-          <p className="mt-1 text-sm font-bold text-slate-700">{unit}</p>
-        </div>
-      </div>
+        <div className="grid grid-cols-3 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-3 lg:w-[35%] lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+          <div>
+            <p className="text-[10px] font-medium text-slate-400">Purchase</p>
 
-      {/* STOCK INFORMATION */}
+            <p className="mt-1 text-xs font-semibold text-slate-700">
+              {formatCurrency(purchasePrice)}
+            </p>
+          </div>
 
-      <div className="mt-5">
-        <div className="flex items-center justify-between">
-          <p className="text-xs font-semibold text-slate-500">
-            Available Stock
-          </p>
+          <div>
+            <p className="text-[10px] font-medium text-slate-400">Selling</p>
 
-          <div className="flex items-center gap-1 text-xs font-bold text-slate-800">
-            <Boxes size={14} />
-            {stock.toLocaleString()} {unit}
+            <p className="mt-1 text-xs font-semibold text-slate-800">
+              {formatCurrency(sellingPrice)}
+            </p>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-medium text-slate-400">
+              Profit / {unit}
+            </p>
+
+            <p
+              className={`mt-1 text-xs font-semibold ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}
+            >
+              {formatCurrency(profit)}
+            </p>
           </div>
         </div>
 
-        <div
-          className={`mt-3 h-2 overflow-hidden rounded-full ${
-            status === "Out of Stock"
-              ? "bg-red-100"
-              : status === "Low Stock"
-                ? "bg-orange-100"
-                : "bg-emerald-100"
-          }`}
-        >
-          <div
-            className={`h-full rounded-full transition-all ${
-              status === "Out of Stock"
-                ? "w-0"
-                : status === "Low Stock"
-                  ? "w-1/3 bg-orange-500"
-                  : "w-full bg-emerald-500"
-            }`}
-          />
-        </div>
+        {/* ACTIONS */}
 
-        <div className="mt-2 flex justify-between text-[11px] text-slate-400">
-          <span>
-            Minimum: {minStock} {unit}
-          </span>
-
-          <span>
-            {status === "Out of Stock"
-              ? "Unavailable"
-              : status === "Low Stock"
-                ? "Restock Needed"
-                : "Stock Available"}
-          </span>
-        </div>
-      </div>
-
-      {/* PRICES */}
-
-      <div className="mt-5 grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Purchase Price
-          </p>
-
-          <p className="mt-1 text-sm font-bold text-slate-600">
-            {formatCurrency(product.purchasePrice)}
-          </p>
-        </div>
-
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-            Selling Price
-          </p>
-
-          <p className="mt-1 text-sm font-bold text-slate-800">
-            {formatCurrency(product.sellingPrice)}
-          </p>
-        </div>
-      </div>
-
-      {/* PROFIT */}
-
-      <div className="mt-4 flex items-center justify-between rounded-xl bg-blue-50/70 px-3 py-3">
-        <div className="flex items-center gap-2">
-          <TrendingUp size={16} className="text-blue-600" />
-
-          <span className="text-xs font-medium text-slate-600">
-            Profit / {unit}
-          </span>
-        </div>
-
-        <span
-          className={`text-sm font-bold ${
-            profit >= 0 ? "text-emerald-600" : "text-red-600"
-          }`}
-        >
-          {formatCurrency(profit)}
-        </span>
-      </div>
-
-      {/* CARD ACTIONS */}
-
-      <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
-        <span className="flex items-center gap-1 text-xs font-semibold text-blue-600 transition group-hover:gap-2">
-          Edit Details
-          <ArrowUpRight size={14} />
-        </span>
-
-        <div className="flex items-center gap-2">
+        <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onEdit();
-            }}
+            onClick={onEdit}
             title="Edit Product"
-            aria-label="Edit product"
-            className="rounded-lg bg-blue-50 p-2.5 text-blue-600 transition hover:bg-blue-100"
+            className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
           >
             <Pencil size={16} />
           </button>
 
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete();
-            }}
+            onClick={onDelete}
             title="Delete Product"
-            aria-label="Delete product"
-            className="rounded-lg bg-red-50 p-2.5 text-red-500 transition hover:bg-red-100"
+            className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
           >
             <Trash2 size={16} />
           </button>
@@ -1182,7 +1059,7 @@ function ProductCard({ product, status, onEdit, onDelete }) {
 }
 
 // ===================================
-// CLICKABLE STATISTICS CARD
+// STATISTICS CARD
 // ===================================
 
 function StatBox({
@@ -1197,22 +1074,22 @@ function StatBox({
   const colorClasses = {
     blue: {
       icon: "bg-blue-50 text-blue-600",
-      line: "bg-blue-500",
+      active: "border-blue-300",
     },
 
     emerald: {
       icon: "bg-emerald-50 text-emerald-600",
-      line: "bg-emerald-500",
+      active: "border-emerald-300",
     },
 
     orange: {
       icon: "bg-orange-50 text-orange-600",
-      line: "bg-orange-500",
+      active: "border-orange-300",
     },
 
     red: {
       icon: "bg-red-50 text-red-600",
-      line: "bg-red-500",
+      active: "border-red-300",
     },
   };
 
@@ -1221,42 +1098,25 @@ function StatBox({
       type="button"
       onClick={onClick}
       whileTap={{ scale: 0.98 }}
-      initial={{ opacity: 0, y: 15 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`group relative w-full overflow-hidden rounded-2xl border bg-white p-5 text-left shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg ${
-        active
-          ? "border-blue-300 ring-2 ring-blue-100"
-          : "border-slate-200 hover:border-slate-300"
+      className={`w-full rounded-xl border bg-white p-4 text-left transition hover:border-slate-300 ${
+        active ? colorClasses[color].active : "border-slate-200"
       }`}
     >
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-
-          <h3 className="mt-2 text-2xl font-bold text-slate-800">{value}</h3>
-        </div>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-slate-500 sm:text-sm">{title}</p>
 
         <div
-          className={`flex h-12 w-12 items-center justify-center rounded-xl ${colorClasses[color].icon}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colorClasses[color].icon}`}
         >
-          <Icon size={23} />
+          <Icon size={18} />
         </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between">
-        <p className="text-xs text-slate-400">{description}</p>
+      <h3 className="mt-3 break-words text-xl font-bold text-slate-800 sm:text-2xl">
+        {value}
+      </h3>
 
-        <ArrowUpRight
-          size={16}
-          className="text-slate-300 transition group-hover:translate-x-0.5 group-hover:-translate-y-0.5 group-hover:text-blue-600"
-        />
-      </div>
-
-      <div
-        className={`absolute bottom-0 left-0 h-1 transition-all duration-300 ${
-          active ? "w-full" : "w-0 group-hover:w-full"
-        } ${colorClasses[color].line}`}
-      />
+      <p className="mt-1 text-[11px] text-slate-400">{description}</p>
     </motion.button>
   );
 }
@@ -1268,7 +1128,7 @@ function StatBox({
 function FormField({ label, required, children }) {
   return (
     <div>
-      <label className="mb-2 block text-sm font-semibold text-slate-700">
+      <label className="mb-1.5 block text-xs font-semibold text-slate-600">
         {label}
 
         {required && <span className="ml-1 text-red-500">*</span>}

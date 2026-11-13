@@ -8,30 +8,22 @@ function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[#f5f7fb]">
-
+    <div className="min-h-screen bg-slate-100">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
-        <Sidebar
-          collapsed={collapsed}
-          setCollapsed={setCollapsed}
-        />
+        <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />
       </div>
 
       {/* Mobile Sidebar */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 lg:hidden">
-
           <div
             className="absolute inset-0 bg-black/40"
             onClick={() => setMobileOpen(false)}
           />
 
           <div className="relative h-full w-[260px]">
-            <Sidebar
-              collapsed={false}
-              setCollapsed={() => {}}
-            />
+            <Sidebar collapsed={false} setCollapsed={() => {}} />
 
             <button
               onClick={() => setMobileOpen(false)}
@@ -40,7 +32,6 @@ function DashboardLayout() {
               ✕
             </button>
           </div>
-
         </div>
       )}
 
@@ -50,15 +41,12 @@ function DashboardLayout() {
           collapsed ? "lg:ml-[85px]" : "lg:ml-[260px]"
         }`}
       >
-
         <Navbar setMobileOpen={setMobileOpen} />
 
         <div className="p-4 md:p-8">
           <Outlet />
         </div>
-
       </main>
-
     </div>
   );
 }

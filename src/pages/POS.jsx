@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { useProducts } from "../context/ProductsContext";
@@ -23,11 +23,13 @@ import {
   CalendarDays,
   Receipt,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
-// --------------------------------------------------
+// ==================================================
 // HELPERS
-// --------------------------------------------------
+// ==================================================
 
 const formatCurrency = (amount) =>
   `Rs. ${Number(amount || 0).toLocaleString("en-PK", {
@@ -41,12 +43,7 @@ const getToday = () => {
   return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 16);
 };
 
-const generateInvoiceNumber = () => {
-  const timestamp = Date.now().toString().slice(-8);
-  const random = Math.floor(100 + Math.random() * 900);
-
-  return `INV-${timestamp}-${random}`;
-};
+const validDecimal = (value) => /^\d*\.?\d*$/.test(value);
 
 const escapeHTML = (value) =>
   String(value ?? "").replace(/[&<>"']/g, (character) => {
@@ -61,11 +58,133 @@ const escapeHTML = (value) =>
     return entities[character];
   });
 
-const validDecimal = (value) => /^\d*\.?\d*$/.test(value);
+// ==================================================
+// INVOICE NUMBER GENERATOR
+// FORMAT: DDMMYY + DAILY SEQUENCE
+// EXAMPLE: 13112601
+// ==================================================
 
-// --------------------------------------------------
-// POS
-// --------------------------------------------------
+const getInvoiceDatePrefix = (dateValue) => {
+  if (!dateValue) {
+    throw new Error("Invoice date is required.");
+  }
+
+  const datePart = String(dateValue).split("T")[0];
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) {
+    throw new Error("Invalid invoice date.");
+  }
+
+  const [year, month, day] = datePart.split("-");
+
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+
+  if (
+    date.getFullYear() !== Number(year) ||
+    date.getMonth() !== Number(month) - 1 ||
+    date.getDate() !== Number(day)
+  ) {
+    throw new Error("Invalid calendar date.");
+  }
+
+  return `${day}${month}${year.slice(-2)}`;
+};
+
+const generateInvoiceNumber = (existingSales, saleDate) => {
+  const prefix = getInvoiceDatePrefix(saleDate);
+
+  const existingNumbers = (existingSales || [])
+    .map((sale) => String(sale.invoiceNumber || ""))
+    .filter((number) => new RegExp(`^${prefix}\\d{2,}$`).test(number))
+    .map((number) => Number(number.slice(prefix.length)))
+    .filter((sequence) => Number.isSafeInteger(sequence) && sequence > 0);
+
+  const highestSequence =
+    existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0;
+
+  const nextSequence = highestSequence + 1;
+
+  if (!Number.isSafeInteger(nextSequence)) {
+    throw new Error("Invoice sequence limit reached.");
+  }
+
+  return `${prefix}${String(nextSequence).padStart(2, "0")}`;
+};
+
+// ==================================================
+// CUSTOMER NAME VALIDATION
+// ==================================================
+
+const validateCustomerName = (name) => {
+  const value = String(name || "").trim();
+
+  if (!value) {
+    return "Customer name is required.";
+  }
+
+  if (value.length < 2) {
+    return "Customer name must contain at least 2 characters.";
+  }
+
+  if (value.length > 60) {
+    return "Customer name cannot exceed 60 characters.";
+  }
+
+  // English and Urdu letters supported.
+  const validNamePattern = /^[\p{L}][\p{L}\p{M} .'-]*$/u;
+
+  if (!validNamePattern.test(value)) {
+    return "Please enter a valid customer name. Numbers and special characters are not allowed.";
+  }
+
+  const letterCount = [...value].filter((char) => /\p{L}/u.test(char)).length;
+
+  if (letterCount < 2) {
+    return "Please enter a valid customer name.";
+  }
+
+  return null;
+};
+
+// ==================================================
+// PAKISTAN PHONE NORMALIZATION
+// ==================================================
+
+const normalizePakistanPhone = (phone) => {
+  let value = String(phone || "").replace(/[\s()-]/g, "");
+
+  if (value.startsWith("+92")) {
+    value = "0" + value.slice(3);
+  } else if (value.startsWith("0092")) {
+    value = "0" + value.slice(4);
+  } else if (value.startsWith("92")) {
+    value = "0" + value.slice(2);
+  }
+
+  return value;
+};
+
+// ==================================================
+// PAKISTAN MOBILE VALIDATION
+// ==================================================
+
+const validatePakistanPhone = (phone) => {
+  if (!String(phone || "").trim()) {
+    return null;
+  }
+
+  const normalized = normalizePakistanPhone(phone);
+
+  if (!/^03[0-9]{9}$/.test(normalized)) {
+    return "Enter a valid Pakistani mobile number (03XXXXXXXXX).";
+  }
+
+  return null;
+};
+
+// ==================================================
+// POS COMPONENT
+// ==================================================
 
 function POS() {
   const { products, setProducts } = useProducts();
@@ -75,42 +194,53 @@ function POS() {
   const { customers, addOrUpdateCustomer, updateCustomerAfterSale } =
     useCustomers();
 
-  // --------------------------------------------------
-  // PRODUCTS
-  // --------------------------------------------------
+  // ==================================================
+  // PRODUCT DATA
+  // ==================================================
 
-  const posProducts = useMemo(() => {
-    return products.map((product) => ({
-      ...product,
-      price: Number(product.sellingPrice) || 0,
-      stock: Number(product.stock) || 0,
-      minStock: Number(product.minStock) || 0,
-    }));
-  }, [products]);
+  const posProducts = useMemo(
+    () =>
+      products.map((product) => ({
+        ...product,
+        price: Number(product.sellingPrice) || 0,
+        stock: Number(product.stock) || 0,
+        minStock: Number(product.minStock) || 0,
+      })),
+    [products],
+  );
 
   const categories = useMemo(() => {
-    const productCategories = [
+    const uniqueCategories = [
       ...new Set(products.map((product) => product.category).filter(Boolean)),
     ];
 
-    return ["All", ...productCategories];
+    return ["All", ...uniqueCategories];
   }, [products]);
 
-  // --------------------------------------------------
-  // SEARCH
-  // --------------------------------------------------
+  // ==================================================
+  // SEARCH & FILTER
+  // ==================================================
 
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(6);
 
   const filteredProducts = useMemo(() => {
     return posProducts.filter((product) => {
       const searchText = search.toLowerCase().trim();
 
       const matchesSearch =
-        product.name?.toLowerCase().includes(searchText) ||
-        product.size?.toLowerCase().includes(searchText) ||
-        product.category?.toLowerCase().includes(searchText);
+        String(product.name || "")
+          .toLowerCase()
+          .includes(searchText) ||
+        String(product.size || "")
+          .toLowerCase()
+          .includes(searchText) ||
+        String(product.category || "")
+          .toLowerCase()
+          .includes(searchText);
 
       const matchesCategory =
         activeCategory === "All" || product.category === activeCategory;
@@ -119,51 +249,91 @@ function POS() {
     });
   }, [posProducts, search, activeCategory]);
 
-  // --------------------------------------------------
+  // ==================================================
+  // PAGINATION
+  // ==================================================
+
+  const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
+
+  const safeTotalPages = Math.max(1, totalPages);
+
+  const startIndex = (currentPage - 1) * itemsPerPage;
+
+  const paginatedProducts = filteredProducts.slice(
+    startIndex,
+    startIndex + itemsPerPage,
+  );
+
+  const startProduct = filteredProducts.length === 0 ? 0 : startIndex + 1;
+
+  const endProduct = Math.min(
+    startIndex + itemsPerPage,
+    filteredProducts.length,
+  );
+
+  useEffect(() => {
+    if (currentPage > safeTotalPages) {
+      setCurrentPage(safeTotalPages);
+    }
+  }, [currentPage, safeTotalPages]);
+
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, safeTotalPages)));
+  };
+
+  const handleItemsPerPageChange = (e) => {
+    setItemsPerPage(Number(e.target.value));
+    setCurrentPage(1);
+  };
+
+  // ==================================================
   // CUSTOMER
-  // --------------------------------------------------
+  // ==================================================
 
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [saleDate, setSaleDate] = useState(getToday());
 
-  // --------------------------------------------------
+  // ==================================================
   // CART
-  // --------------------------------------------------
+  // ==================================================
 
   const [cart, setCart] = useState([]);
 
-  // --------------------------------------------------
+  // ==================================================
   // BILLING
-  // --------------------------------------------------
+  // ==================================================
 
   const [discount, setDiscount] = useState("0");
   const [paidAmount, setPaidAmount] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("Cash");
 
-  // --------------------------------------------------
-  // INVOICE / EDIT MODE
-  // --------------------------------------------------
+  // ==================================================
+  // INVOICE STATE
+  // ==================================================
 
   const [completedSale, setCompletedSale] = useState(null);
   const [wasInvoiceUpdated, setWasInvoiceUpdated] = useState(false);
-  const productsSectionRef = useRef(null);
 
   const [editingSale, setEditingSale] = useState(null);
 
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // --------------------------------------------------
-  // CALCULATIONS
-  // --------------------------------------------------
+  const productsSectionRef = useRef(null);
 
-  const subtotal = useMemo(() => {
-    return cart.reduce(
-      (total, item) =>
-        total + Number(item.price) * (Number(item.quantity) || 0),
-      0,
-    );
-  }, [cart]);
+  // ==================================================
+  // CALCULATIONS
+  // ==================================================
+
+  const subtotal = useMemo(
+    () =>
+      cart.reduce(
+        (total, item) =>
+          total + Number(item.price) * (Number(item.quantity) || 0),
+        0,
+      ),
+    [cart],
+  );
 
   const discountInput = Number(discount) || 0;
 
@@ -186,9 +356,9 @@ function POS() {
     0,
   );
 
-  // --------------------------------------------------
-  // ADD PRODUCT TO CART
-  // --------------------------------------------------
+  // ==================================================
+  // ADD TO CART
+  // ==================================================
 
   const addToCart = (product) => {
     if (product.stock <= 0) {
@@ -201,13 +371,14 @@ function POS() {
 
       if (existingItem) {
         const currentQuantity = Number(existingItem.quantity) || 0;
+
         const initialQuantity = Number(existingItem.initialQuantity) || 0;
 
         const maximumQuantity = product.stock + initialQuantity;
 
         if (currentQuantity + 1 > maximumQuantity) {
           alert(
-            `Only ${product.stock} ${product.unit} additional stock available.`,
+            `Maximum available quantity is ${maximumQuantity} ${product.unit}.`,
           );
 
           return previousCart;
@@ -236,9 +407,9 @@ function POS() {
     });
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // UPDATE QUANTITY
-  // --------------------------------------------------
+  // ==================================================
 
   const updateQuantity = (id, value) => {
     if (value !== "" && !validDecimal(value)) return;
@@ -250,9 +421,9 @@ function POS() {
     );
   };
 
-  // --------------------------------------------------
-  // QUANTITY BLUR VALIDATION
-  // --------------------------------------------------
+  // ==================================================
+  // QUANTITY VALIDATION
+  // ==================================================
 
   const handleQuantityBlur = (id) => {
     setCart((previousCart) =>
@@ -262,6 +433,7 @@ function POS() {
         const product = posProducts.find((product) => product.id === id);
 
         const quantity = Number(item.quantity);
+
         const initialQuantity = Number(item.initialQuantity) || 0;
 
         const maximumQuantity = (product?.stock || 0) + initialQuantity;
@@ -292,9 +464,9 @@ function POS() {
     );
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // INCREASE QUANTITY
-  // --------------------------------------------------
+  // ==================================================
 
   const increaseQuantity = (id) => {
     setCart((previousCart) =>
@@ -303,12 +475,10 @@ function POS() {
 
         const product = posProducts.find((product) => product.id === id);
 
-        const currentQuantity = Number(item.quantity) || 0;
-        const initialQuantity = Number(item.initialQuantity) || 0;
+        const maximumQuantity =
+          (product?.stock || 0) + (Number(item.initialQuantity) || 0);
 
-        const maximumQuantity = (product?.stock || 0) + initialQuantity;
-
-        const nextQuantity = currentQuantity + 1;
+        const nextQuantity = Number(item.quantity || 0) + 1;
 
         if (nextQuantity > maximumQuantity) {
           alert(
@@ -326,19 +496,18 @@ function POS() {
     );
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // DECREASE QUANTITY
-  // --------------------------------------------------
+  // ==================================================
 
   const decreaseQuantity = (id) => {
     setCart((previousCart) =>
       previousCart.map((item) => {
         if (item.id !== id) return item;
 
-        const currentQuantity = Number(item.quantity) || 0;
-        const nextQuantity = currentQuantity - 1;
+        const nextQuantity = Number(item.quantity) - 1;
 
-        if (nextQuantity < 0.01) return item;
+        if (nextQuantity <= 0) return item;
 
         return {
           ...item,
@@ -348,19 +517,21 @@ function POS() {
     );
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // REMOVE PRODUCT
-  // --------------------------------------------------
+  // ==================================================
 
   const removeFromCart = (id) => {
     setCart((previousCart) => previousCart.filter((item) => item.id !== id));
   };
 
-  // --------------------------------------------------
-  // RESET SALE
-  // --------------------------------------------------
+  // ==================================================
+  // RESET POS
+  // ==================================================
 
   const clearCart = () => {
+    if (isProcessing) return;
+
     setCart([]);
 
     setDiscount("0");
@@ -376,14 +547,16 @@ function POS() {
     setSearch("");
     setActiveCategory("All");
 
+    setCurrentPage(1);
+
     setCompletedSale(null);
     setWasInvoiceUpdated(false);
     setEditingSale(null);
   };
 
-  // --------------------------------------------------
-  // ADD MORE ITEMS TO EXISTING INVOICE
-  // --------------------------------------------------
+  // ==================================================
+  // EDIT EXISTING INVOICE
+  // ==================================================
 
   const handleAddMoreItems = () => {
     if (!completedSale) return;
@@ -414,7 +587,7 @@ function POS() {
 
     setDiscount(String(sale.discount || 0));
 
-    setPaidAmount(String(sale.amountReceived || 0));
+    setPaidAmount(String(sale.amountReceived ?? sale.paid ?? 0));
 
     setPaymentMethod(sale.paymentMethod || "Cash");
 
@@ -424,6 +597,7 @@ function POS() {
 
     setSearch("");
     setActiveCategory("All");
+    setCurrentPage(1);
 
     requestAnimationFrame(() => {
       productsSectionRef.current?.scrollIntoView({
@@ -432,30 +606,69 @@ function POS() {
       });
     });
   };
-  // --------------------------------------------------
-  // CLOSE INVOICE
-  // --------------------------------------------------
 
   const handleCloseInvoice = () => {
     setCompletedSale(null);
   };
 
-  // --------------------------------------------------
+  // ==================================================
+  // CUSTOMER AUTOFILL
+  // ==================================================
+
+  const handlePhoneChange = (value) => {
+    setCustomerPhone(value);
+
+    const normalizedPhone = normalizePakistanPhone(value);
+
+    const existingCustomer = customers?.find(
+      (customer) => normalizePakistanPhone(customer.phone) === normalizedPhone,
+    );
+
+    if (existingCustomer) {
+      setCustomerName(existingCustomer.name || "");
+    }
+  };
+
+  // ==================================================
   // CHECKOUT
-  // --------------------------------------------------
+  // ==================================================
 
   const handleCheckout = () => {
     if (isProcessing) return;
 
-    if (!customerName.trim()) {
-      alert("Please enter customer name.");
+    // CUSTOMER NAME VALIDATION
+
+    const nameError = validateCustomerName(customerName);
+
+    if (nameError) {
+      alert(nameError);
       return;
     }
 
-    if (!saleDate) {
-      alert("Please select sale date.");
+    // CUSTOMER PHONE VALIDATION
+
+    const phoneError = validatePakistanPhone(customerPhone);
+
+    if (phoneError) {
+      alert(phoneError);
       return;
     }
+
+    // DATE VALIDATION
+
+    if (!saleDate) {
+      alert("Please select sale date and time.");
+      return;
+    }
+
+    try {
+      getInvoiceDatePrefix(saleDate);
+    } catch (error) {
+      alert(error.message);
+      return;
+    }
+
+    // CART VALIDATION
 
     if (cart.length === 0) {
       alert("Please add products to the cart first.");
@@ -463,20 +676,39 @@ function POS() {
     }
 
     if (
-      cart.some((item) => !Number(item.quantity) || Number(item.quantity) <= 0)
+      cart.some(
+        (item) =>
+          !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0,
+      )
     ) {
-      alert("Please enter a valid quantity for every product.");
+      alert("Please enter a valid quantity.");
       return;
     }
 
-    if (discountInput < 0 || discountInput > subtotal) {
+    // DISCOUNT VALIDATION
+
+    if (
+      !Number.isFinite(Number(discount)) ||
+      discountInput < 0 ||
+      discountInput > subtotal
+    ) {
       alert("Please enter a valid discount.");
       return;
     }
 
-    // --------------------------------------------------
-    // CHECK STOCK DELTA
-    // --------------------------------------------------
+    // PRICE VALIDATION
+
+    if (
+      cart.some(
+        (item) =>
+          !Number.isFinite(Number(item.price)) || Number(item.price) < 0,
+      )
+    ) {
+      alert("Invalid product price detected.");
+      return;
+    }
+
+    // STOCK VALIDATION
 
     for (const item of cart) {
       const latestProduct = products.find((product) => product.id === item.id);
@@ -506,8 +738,22 @@ function POS() {
     setIsProcessing(true);
 
     try {
-      const invoiceNumber =
-        editingSale?.invoiceNumber || generateInvoiceNumber();
+      // INVOICE NUMBER
+
+      // Existing invoice keeps its original number.
+      // New invoice gets a date-based sequential number.
+
+      const invoiceNumber = editingSale
+        ? editingSale.invoiceNumber
+        : generateInvoiceNumber(sales, saleDate);
+
+      // NORMALIZED CUSTOMER PHONE
+
+      const normalizedPhone = customerPhone.trim()
+        ? normalizePakistanPhone(customerPhone)
+        : "";
+
+      // SALE OBJECT
 
       const sale = {
         id: editingSale?.id || Date.now(),
@@ -516,7 +762,7 @@ function POS() {
 
         customerName: customerName.trim(),
 
-        customerPhone: customerPhone.trim(),
+        customerPhone: normalizedPhone,
 
         saleDate,
 
@@ -556,21 +802,22 @@ function POS() {
         updatedAt: new Date().toISOString(),
       };
 
-      // --------------------------------------------------
-      // NEW SALE
-      // --------------------------------------------------
+      // ==================================================
+      // SAVE NEW SALE
+      // ==================================================
 
       if (!editingSale) {
-        const savedSale = addSale(sale);
+        const savedSale = addSale(sale) || sale;
 
-        addOrUpdateCustomer(savedSale || sale);
+        addOrUpdateCustomer(savedSale);
 
         setWasInvoiceUpdated(false);
-        setCompletedSale(savedSale || sale);
+
+        setCompletedSale(savedSale);
       } else {
-        // --------------------------------------------------
+        // ==================================================
         // UPDATE EXISTING SALE
-        // --------------------------------------------------
+        // ==================================================
 
         const oldSale = editingSale;
 
@@ -579,12 +826,13 @@ function POS() {
         updateCustomerAfterSale(oldSale, sale);
 
         setWasInvoiceUpdated(true);
+
         setCompletedSale(sale);
       }
 
-      // --------------------------------------------------
-      // UPDATE INVENTORY
-      // --------------------------------------------------
+      // ==================================================
+      // INVENTORY UPDATE
+      // ==================================================
 
       setProducts((previousProducts) =>
         previousProducts.map((product) => {
@@ -595,6 +843,7 @@ function POS() {
           const newItem = cart.find((item) => item.id === product.id);
 
           const oldQuantity = Number(oldItem?.quantity) || 0;
+
           const newQuantity = Number(newItem?.quantity) || 0;
 
           const difference = newQuantity - oldQuantity;
@@ -603,7 +852,7 @@ function POS() {
 
           return {
             ...product,
-            stock: Math.max(0, (Number(product.stock) || 0) - difference),
+            stock: (Number(product.stock) || 0) - difference,
           };
         }),
       );
@@ -612,17 +861,15 @@ function POS() {
     } catch (error) {
       console.error("Checkout error:", error);
 
-      alert(
-        "Something went wrong while completing the sale. Please try again.",
-      );
+      alert(error.message || "Something went wrong while completing the sale.");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  // --------------------------------------------------
+  // ==================================================
   // PRINT INVOICE
-  // --------------------------------------------------
+  // ==================================================
 
   const printInvoice = () => {
     if (!completedSale) return;
@@ -643,7 +890,9 @@ function POS() {
         <title>${escapeHTML(sale.invoiceNumber)}</title>
 
         <style>
-          * { box-sizing: border-box; }
+          * {
+            box-sizing: border-box;
+          }
 
           body {
             font-family: Arial, sans-serif;
@@ -659,7 +908,10 @@ function POS() {
             padding-bottom: 20px;
           }
 
-          h1 { color: #2563eb; margin: 0; }
+          h1 {
+            color: #2563eb;
+            margin: 0;
+          }
 
           .info {
             display: grid;
@@ -683,7 +935,9 @@ function POS() {
             border-bottom: 1px solid #e2e8f0;
           }
 
-          th { background: #eff6ff; }
+          th {
+            background: #eff6ff;
+          }
 
           .totals {
             width: 320px;
@@ -711,7 +965,9 @@ function POS() {
           }
 
           @media print {
-            body { padding: 10px; }
+            body {
+              padding: 10px;
+            }
           }
         </style>
       </head>
@@ -770,7 +1026,10 @@ function POS() {
                   <tr>
                     <td>${escapeHTML(item.name)}</td>
                     <td>${escapeHTML(item.size || "N/A")}</td>
-                    <td>${escapeHTML(item.quantity)} ${escapeHTML(item.unit)}</td>
+                    <td>
+                      ${escapeHTML(item.quantity)}
+                      ${escapeHTML(item.unit)}
+                    </td>
                     <td>${formatCurrency(item.price)}</td>
                     <td>${formatCurrency(item.total)}</td>
                   </tr>
@@ -838,25 +1097,9 @@ function POS() {
     printWindow.document.close();
   };
 
-  // --------------------------------------------------
-  // CUSTOMER AUTOFILL
-  // --------------------------------------------------
-
-  const handlePhoneChange = (value) => {
-    setCustomerPhone(value);
-
-    const existingCustomer = customers?.find(
-      (customer) => customer.phone && customer.phone.trim() === value.trim(),
-    );
-
-    if (existingCustomer) {
-      setCustomerName(existingCustomer.name || "");
-    }
-  };
-
-  // --------------------------------------------------
+  // ==================================================
   // UI
-  // --------------------------------------------------
+  // ==================================================
 
   return (
     <div className="space-y-6">
@@ -905,8 +1148,6 @@ function POS() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-          {/* NAME */}
-
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
               Customer Name *
@@ -921,14 +1162,13 @@ function POS() {
               <input
                 type="text"
                 value={customerName}
+                maxLength={60}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Enter customer name"
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
               />
             </div>
           </div>
-
-          {/* PHONE */}
 
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
@@ -949,9 +1189,11 @@ function POS() {
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
               />
             </div>
-          </div>
 
-          {/* DATE */}
+            <p className="mt-1 text-[11px] text-slate-400">
+              Pakistani mobile number (optional).
+            </p>
+          </div>
 
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
@@ -982,7 +1224,7 @@ function POS() {
 
         <div
           ref={productsSectionRef}
-          className="space-y-5 scroll-mt-6 xl:col-span-2"
+          className="min-w-0 space-y-5 scroll-mt-6 xl:col-span-2"
         >
           {/* SEARCH */}
 
@@ -996,7 +1238,10 @@ function POS() {
               type="text"
               placeholder="Search products by name or size..."
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full rounded-xl border border-slate-200 bg-white py-3.5 pl-12 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
             />
           </div>
@@ -1007,7 +1252,10 @@ function POS() {
             {categories.map((category) => (
               <button
                 key={category}
-                onClick={() => setActiveCategory(category)}
+                onClick={() => {
+                  setActiveCategory(category);
+                  setCurrentPage(1);
+                }}
                 className={`whitespace-nowrap rounded-xl px-4 py-2.5 text-sm font-semibold transition ${
                   activeCategory === category
                     ? "bg-blue-600 text-white shadow-md shadow-blue-200"
@@ -1021,7 +1269,7 @@ function POS() {
 
           {/* PRODUCT HEADING */}
 
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold text-slate-800">
                 Available Products
@@ -1032,15 +1280,15 @@ function POS() {
               </p>
             </div>
 
-            <span className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600">
+            <span className="shrink-0 rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600">
               {filteredProducts.length} Products
             </span>
           </div>
 
-          {/* PRODUCT CARDS */}
+          {/* PRODUCT LIST */}
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {filteredProducts.map((product, index) => {
+          <div className="flex flex-col gap-3">
+            {paginatedProducts.map((product, index) => {
               const cartItem = cart.find((item) => item.id === product.id);
 
               const isInCart = Boolean(cartItem);
@@ -1062,116 +1310,222 @@ function POS() {
               return (
                 <motion.div
                   key={product.id}
-                  initial={{ opacity: 0, y: 15 }}
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.03 }}
-                  className={`rounded-2xl border bg-white p-4 transition hover:-translate-y-1 hover:shadow-lg ${
+                  transition={{
+                    delay: Math.min(index * 0.02, 0.2),
+                  }}
+                  className={`rounded-2xl border bg-white p-4 transition hover:shadow-md ${
                     isInCart
-                      ? "border-amber-300 shadow-sm"
+                      ? "border-amber-300 bg-amber-50/30"
                       : "border-slate-200 hover:border-blue-200"
                   }`}
                 >
-                  <div className="flex items-start justify-between">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-                      <Package size={24} />
-                    </div>
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                    {/* DETAILS */}
 
-                    {isOutOfStock ? (
-                      <span className="rounded-full bg-red-100 px-2.5 py-1 text-[10px] font-bold text-red-600">
-                        Out of Stock
-                      </span>
-                    ) : isLowStock ? (
-                      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-700">
-                        Low Stock
-                      </span>
-                    ) : isInCart ? (
-                      <span className="rounded-full bg-green-100 px-2.5 py-1 text-[10px] font-bold text-green-700">
-                        Selected
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4">
-                    <p className="text-xs font-medium text-slate-400">
-                      {product.category || "Other"}
-                    </p>
-
-                    <h3 className="mt-1 font-bold text-slate-800">
-                      {product.name}
-                    </h3>
-
-                    <p className="mt-1 text-xs text-slate-500">
-                      Size: {product.size || "N/A"}
-                    </p>
-                  </div>
-
-                  <div className="mt-4 flex items-end justify-between gap-2">
-                    <div>
-                      <p className="text-xs text-slate-400">
-                        Price / {product.unit}
-                      </p>
-
-                      <p className="mt-1 text-lg font-bold text-blue-600">
-                        {formatCurrency(product.price)}
-                      </p>
-                    </div>
-
-                    <div className="text-right">
-                      <p className="text-xs text-slate-400">Available Stock</p>
-
-                      <p
-                        className={`mt-1 text-sm font-semibold ${
-                          isOutOfStock || isLowStock
-                            ? "text-red-500"
-                            : "text-slate-700"
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div
+                        className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${
+                          isOutOfStock
+                            ? "bg-red-50 text-red-500"
+                            : isInCart
+                              ? "bg-amber-100 text-amber-700"
+                              : "bg-blue-50 text-blue-600"
                         }`}
                       >
-                        {product.stock} {product.unit}
-                      </p>
+                        <Package size={23} />
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                            {product.category || "Other"}
+                          </span>
+
+                          {isOutOfStock ? (
+                            <span className="rounded-full bg-red-100 px-2.5 py-1 text-[10px] font-bold text-red-600">
+                              Out of Stock
+                            </span>
+                          ) : isLowStock ? (
+                            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-bold text-amber-700">
+                              Low Stock
+                            </span>
+                          ) : isInCart ? (
+                            <span className="rounded-full bg-green-100 px-2.5 py-1 text-[10px] font-bold text-green-700">
+                              Selected
+                            </span>
+                          ) : (
+                            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold text-slate-500">
+                              In Stock
+                            </span>
+                          )}
+                        </div>
+
+                        <h3 className="truncate font-bold text-slate-800">
+                          {product.name}
+                        </h3>
+
+                        <p className="mt-1 text-xs text-slate-500">
+                          Size: {product.size || "N/A"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* PRICE AND STOCK */}
+
+                    <div className="grid grid-cols-2 gap-3 sm:w-52 sm:shrink-0">
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <p className="text-[11px] font-medium text-slate-400">
+                          Price / {product.unit}
+                        </p>
+
+                        <p className="mt-1 text-sm font-bold text-blue-600">
+                          {formatCurrency(product.price)}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-slate-50 px-3 py-2">
+                        <p className="text-[11px] font-medium text-slate-400">
+                          Available Stock
+                        </p>
+
+                        <p
+                          className={`mt-1 text-sm font-bold ${
+                            isOutOfStock
+                              ? "text-red-600"
+                              : isLowStock
+                                ? "text-amber-600"
+                                : "text-slate-700"
+                          }`}
+                        >
+                          {product.stock} {product.unit}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* ADD TO CART */}
+
+                    <div className="flex items-center gap-3 sm:w-44 sm:shrink-0 sm:flex-col sm:items-stretch">
+                      {isInCart && (
+                        <p className="text-xs font-semibold text-amber-700 sm:text-center">
+                          In Order: {currentQuantity} {product.unit}
+                        </p>
+                      )}
+
+                      <button
+                        onClick={() => addToCart(product)}
+                        disabled={isOutOfStock || isCartLimitReached}
+                        className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-full ${
+                          isInCart
+                            ? "bg-amber-500 hover:bg-amber-600"
+                            : "bg-blue-600 hover:bg-blue-700"
+                        }`}
+                      >
+                        {isOutOfStock ? (
+                          "Out of Stock"
+                        ) : isCartLimitReached ? (
+                          "Stock Limit Reached"
+                        ) : isInCart ? (
+                          <>
+                            <Plus size={16} />
+                            Add More
+                          </>
+                        ) : (
+                          <>
+                            <ShoppingCart size={16} />
+                            Add to Cart
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
-
-                  {isInCart && (
-                    <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-50 px-3 py-2">
-                      <span className="text-xs font-semibold text-amber-800">
-                        In Current Order
-                      </span>
-
-                      <span className="text-sm font-bold text-amber-700">
-                        {currentQuantity} {product.unit}
-                      </span>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => addToCart(product)}
-                    disabled={isOutOfStock || isCartLimitReached}
-                    className={`mt-4 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300 ${
-                      isInCart
-                        ? "bg-amber-500 hover:bg-amber-600"
-                        : "bg-blue-600 hover:bg-blue-700"
-                    }`}
-                  >
-                    {isOutOfStock ? (
-                      "Out of Stock"
-                    ) : isCartLimitReached ? (
-                      "Stock Limit Reached"
-                    ) : isInCart ? (
-                      <>
-                        <Plus size={17} />
-                        Add More
-                      </>
-                    ) : (
-                      <>
-                        <ShoppingCart size={17} />
-                        Add to Cart
-                      </>
-                    )}
-                  </button>
                 </motion.div>
               );
             })}
           </div>
+
+          {/* PAGINATION */}
+
+          {filteredProducts.length > 0 && (
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <div className="flex items-center gap-2">
+                    <span className="whitespace-nowrap text-sm text-slate-500">
+                      Rows per page:
+                    </span>
+
+                    <select
+                      value={itemsPerPage}
+                      onChange={handleItemsPerPageChange}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    >
+                      {[6, 8, 12, 24, 48].map((number) => (
+                        <option key={number} value={number}>
+                          {number}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <p className="text-sm text-slate-500">
+                    Showing{" "}
+                    <span className="font-bold text-blue-600">
+                      {startProduct} - {endProduct}
+                    </span>{" "}
+                    of{" "}
+                    <span className="font-bold text-slate-800">
+                      {filteredProducts.length}
+                    </span>{" "}
+                    products
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1}
+                    className="flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <ChevronLeft size={16} />
+                    Previous
+                  </button>
+
+                  {Array.from(
+                    { length: totalPages },
+                    (_, index) => index + 1,
+                  ).map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => goToPage(page)}
+                      className={`flex h-9 w-9 items-center justify-center rounded-lg text-sm font-bold transition ${
+                        currentPage === page
+                          ? "bg-blue-600 text-white shadow-md shadow-blue-200"
+                          : "border border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                    className="flex h-9 items-center gap-1 rounded-lg border border-slate-200 px-3 text-sm font-semibold text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Next
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* EMPTY STATE */}
 
           {filteredProducts.length === 0 && (
             <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-12 text-center">
@@ -1188,10 +1542,12 @@ function POS() {
           )}
         </div>
 
-        {/* CART & BILLING */}
+        {/* CART AND BILLING */}
 
-        <div className="space-y-5 xl:sticky xl:top-6">
+        <div className="min-w-0 space-y-5">
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            {/* CART HEADER */}
+
             <div className="flex items-center justify-between border-b border-slate-100 p-5">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -1211,7 +1567,9 @@ function POS() {
 
               <button
                 onClick={() => setCart([])}
-                disabled={cart.length === 0 || Boolean(editingSale)}
+                disabled={
+                  cart.length === 0 || Boolean(editingSale) || isProcessing
+                }
                 className="text-xs font-semibold text-red-500 hover:text-red-700 disabled:opacity-40"
               >
                 Clear
@@ -1220,7 +1578,7 @@ function POS() {
 
             {/* CART ITEMS */}
 
-            <div className="max-h-[350px] min-h-[180px] space-y-4 overflow-y-auto p-5">
+            <div className="min-h-[180px] space-y-4 p-5">
               {cart.length === 0 ? (
                 <div className="flex h-40 flex-col items-center justify-center text-center">
                   <ShoppingCart size={35} className="text-slate-300" />
@@ -1252,6 +1610,7 @@ function POS() {
 
                       <button
                         onClick={() => removeFromCart(item.id)}
+                        disabled={isProcessing}
                         className="rounded-lg p-1.5 text-red-400 transition hover:bg-red-50 hover:text-red-600"
                         title="Remove item"
                       >
@@ -1271,7 +1630,9 @@ function POS() {
                           <button
                             type="button"
                             onClick={() => decreaseQuantity(item.id)}
-                            disabled={Number(item.quantity) <= 0.01}
+                            disabled={
+                              Number(item.quantity) <= 0.01 || isProcessing
+                            }
                             className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             <Minus size={15} />
@@ -1281,6 +1642,7 @@ function POS() {
                             type="text"
                             inputMode="decimal"
                             value={item.quantity}
+                            disabled={isProcessing}
                             onChange={(e) =>
                               updateQuantity(item.id, e.target.value)
                             }
@@ -1299,8 +1661,9 @@ function POS() {
                             onClick={() => increaseQuantity(item.id)}
                             disabled={
                               Number(item.quantity) >=
-                              Number(item.stock) +
-                                Number(item.initialQuantity || 0)
+                                Number(item.stock) +
+                                  Number(item.initialQuantity || 0) ||
+                              isProcessing
                             }
                             className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
                           >
@@ -1359,6 +1722,7 @@ function POS() {
                   type="text"
                   inputMode="decimal"
                   value={discount}
+                  disabled={isProcessing}
                   onChange={(e) => {
                     if (validDecimal(e.target.value)) {
                       setDiscount(e.target.value);
@@ -1399,6 +1763,7 @@ function POS() {
                         key={method.name}
                         type="button"
                         onClick={() => setPaymentMethod(method.name)}
+                        disabled={isProcessing}
                         className={`flex flex-col items-center gap-1 rounded-xl border py-2.5 text-xs font-semibold transition ${
                           paymentMethod === method.name
                             ? "border-blue-500 bg-blue-50 text-blue-600"
@@ -1413,7 +1778,7 @@ function POS() {
                 </div>
               </div>
 
-              {/* RECEIVED AMOUNT */}
+              {/* AMOUNT RECEIVED */}
 
               <div>
                 <label
@@ -1428,6 +1793,7 @@ function POS() {
                   type="text"
                   inputMode="decimal"
                   value={paidAmount}
+                  disabled={isProcessing}
                   onChange={(e) => {
                     if (validDecimal(e.target.value)) {
                       setPaidAmount(e.target.value);
@@ -1524,12 +1890,12 @@ function POS() {
 
       <AnimatePresence>
         {completedSale && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm">
             <motion.div
               initial={{
                 opacity: 0,
-                scale: 0.9,
-                y: 20,
+                scale: 0.95,
+                y: 15,
               }}
               animate={{
                 opacity: 1,
@@ -1538,188 +1904,217 @@ function POS() {
               }}
               exit={{
                 opacity: 0,
-                scale: 0.9,
+                scale: 0.95,
+                y: 15,
               }}
-              className="my-6 w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
+              transition={{ duration: 0.2 }}
+              className="my-auto w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-2xl"
             >
-              {/* CLOSE */}
+              {/* SUCCESS HEADER */}
 
-              <div className="flex items-center justify-end">
+              <div className="relative border-b border-green-100 bg-green-50 px-6 py-7 text-center">
                 <button
                   onClick={handleCloseInvoice}
-                  className="rounded-full bg-slate-100 p-2 text-slate-500 transition hover:bg-red-50 hover:text-red-600"
+                  className="absolute right-4 top-4 rounded-full bg-white p-2 text-slate-500 shadow-sm transition hover:bg-red-50 hover:text-red-600"
                 >
-                  <X size={20} />
+                  <X size={19} />
                 </button>
+
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600 ring-8 ring-green-100/50">
+                  <CheckCircle2 size={35} />
+                </div>
+
+                <h2 className="mt-5 text-2xl font-bold text-slate-800">
+                  {wasInvoiceUpdated ? "Invoice Updated!" : "Sale Completed!"}
+                </h2>
+
+                <p className="mt-2 text-sm text-slate-500">
+                  {wasInvoiceUpdated
+                    ? "Your invoice has been updated successfully."
+                    : "Your sale has been completed successfully."}
+                </p>
+
+                <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-green-200 bg-white px-4 py-2 text-xs font-bold text-green-700">
+                  <CheckCircle2 size={14} />
+                  {completedSale.paymentStatus || "Unpaid"}
+                </div>
               </div>
 
-              {/* SUCCESS ICON */}
+              {/* INVOICE SUMMARY */}
 
-              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-600">
-                <CheckCircle2 size={35} />
-              </div>
+              <div className="p-6">
+                {/* INVOICE NUMBER */}
 
-              <h2 className="mt-4 text-center text-xl font-bold text-slate-800">
-                {wasInvoiceUpdated ? "Invoice Updated!" : "Sale Completed!"}
-              </h2>
+                <div className="mb-5 flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                      <Receipt size={22} />
+                    </div>
 
-              <p className="mt-1 text-center text-sm text-slate-500">
-                {wasInvoiceUpdated
-                  ? "Your existing invoice has been updated successfully."
-                  : "Invoice generated and inventory updated successfully."}
-              </p>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500">
+                        Invoice Number
+                      </p>
 
-              {/* INVOICE DETAILS */}
-
-              <div className="mt-6 rounded-xl border border-slate-200 p-4">
-                <div className="mb-4 flex items-center justify-between border-b border-dashed border-slate-200 pb-4">
-                  <div className="flex items-center gap-2">
-                    <Receipt className="text-blue-600" size={22} />
-
-                    <span className="font-bold text-slate-800">
-                      Invoice Details
-                    </span>
+                      <p className="mt-1 font-bold text-slate-800">
+                        {completedSale.invoiceNumber || "N/A"}
+                      </p>
+                    </div>
                   </div>
 
-                  <span className="rounded-lg bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-600">
-                    {completedSale.invoiceNumber || "N/A"}
+                  <span className="rounded-lg bg-blue-100 px-3 py-1.5 text-xs font-bold text-blue-700">
+                    {completedSale.paymentMethod || "Cash"}
                   </span>
                 </div>
 
-                <div className="max-h-[350px] space-y-3 overflow-y-auto text-sm">
-                  <div className="flex justify-between gap-3">
-                    <span className="text-slate-500">Customer</span>
+                {/* CUSTOMER DETAILS */}
 
-                    <strong className="text-right text-slate-800">
-                      {completedSale.customerName || "Walk-in Customer"}
-                    </strong>
+                <div className="mb-5">
+                  <h3 className="mb-3 text-sm font-bold text-slate-800">
+                    Customer Details
+                  </h3>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl border border-slate-100 p-3">
+                      <p className="text-xs text-slate-400">Customer Name</p>
+
+                      <p className="mt-1 truncate text-sm font-semibold text-slate-700">
+                        {completedSale.customerName || "Walk-in Customer"}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-100 p-3">
+                      <p className="text-xs text-slate-400">Phone Number</p>
+
+                      <p className="mt-1 text-sm font-semibold text-slate-700">
+                        {completedSale.customerPhone || "N/A"}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="flex justify-between gap-3">
-                    <span className="text-slate-500">Phone Number</span>
+                  <div className="mt-3 rounded-xl border border-slate-100 p-3">
+                    <p className="text-xs text-slate-400">Sale Date</p>
 
-                    <strong>{completedSale.customerPhone || "N/A"}</strong>
-                  </div>
-
-                  <div className="flex justify-between gap-3">
-                    <span className="text-slate-500">Sale Date</span>
-
-                    <strong className="text-right">
+                    <p className="mt-1 text-sm font-semibold text-slate-700">
                       {completedSale.saleDate
                         ? new Date(completedSale.saleDate).toLocaleString()
                         : "N/A"}
-                    </strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Total Products</span>
-
-                    <strong>{completedSale.items?.length || 0}</strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Total Quantity</span>
-
-                    <strong>
-                      {completedSale.totalItems ??
-                        completedSale.items?.reduce(
-                          (sum, item) => sum + (Number(item.quantity) || 0),
-                          0,
-                        ) ??
-                        0}
-                    </strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Subtotal</span>
-
-                    <strong>{formatCurrency(completedSale.subtotal)}</strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Discount</span>
-
-                    <strong>{formatCurrency(completedSale.discount)}</strong>
-                  </div>
-
-                  <div className="flex justify-between border-t border-slate-200 pt-3">
-                    <span className="font-bold text-slate-800">
-                      Grand Total
-                    </span>
-
-                    <strong className="text-lg text-blue-600">
-                      {formatCurrency(completedSale.grandTotal)}
-                    </strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Amount Received</span>
-
-                    <strong className="text-green-600">
-                      {formatCurrency(
-                        completedSale.amountReceived ?? completedSale.paid,
-                      )}
-                    </strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Change Returned</span>
-
-                    <strong className="text-green-600">
-                      {formatCurrency(completedSale.changeReturned)}
-                    </strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Remaining Balance</span>
-
-                    <strong className="text-red-500">
-                      {formatCurrency(completedSale.balance)}
-                    </strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Payment Method</span>
-
-                    <strong>{completedSale.paymentMethod || "N/A"}</strong>
-                  </div>
-
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Payment Status</span>
-
-                    <strong
-                      className={
-                        completedSale.paymentStatus === "Paid"
-                          ? "text-green-600"
-                          : completedSale.paymentStatus === "Partial"
-                            ? "text-amber-600"
-                            : "text-red-500"
-                      }
-                    >
-                      {completedSale.paymentStatus || "Unpaid"}
-                    </strong>
+                    </p>
                   </div>
                 </div>
-              </div>
 
-              {/* ACTIONS */}
+                {/* PAYMENT SUMMARY */}
 
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                <button
-                  onClick={printInvoice}
-                  className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                >
-                  <Printer size={17} />
-                  Print Invoice
-                </button>
+                <div>
+                  <h3 className="mb-3 text-sm font-bold text-slate-800">
+                    Payment Summary
+                  </h3>
 
-                <button
-                  onClick={handleAddMoreItems}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white transition hover:bg-amber-600"
-                >
-                  <Plus size={17} />
-                  Add More Items
-                </button>
+                  <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Total Products</span>
+
+                      <span className="font-semibold text-slate-700">
+                        {completedSale.items?.length || 0}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Total Quantity</span>
+
+                      <span className="font-semibold text-slate-700">
+                        {completedSale.totalItems ??
+                          completedSale.items?.reduce(
+                            (sum, item) => sum + (Number(item.quantity) || 0),
+                            0,
+                          ) ??
+                          0}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Subtotal</span>
+
+                      <span className="font-semibold text-slate-700">
+                        {formatCurrency(completedSale.subtotal)}
+                      </span>
+                    </div>
+
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500">Discount</span>
+
+                      <span className="font-semibold text-red-500">
+                        - {formatCurrency(completedSale.discount)}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between border-t border-dashed border-slate-200 pt-3">
+                      <span className="font-bold text-slate-800">
+                        Grand Total
+                      </span>
+
+                      <span className="text-xl font-bold text-blue-600">
+                        {formatCurrency(completedSale.grandTotal)}
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3 pt-2">
+                      <div className="rounded-xl bg-green-50 p-3">
+                        <p className="text-xs text-green-600">
+                          Amount Received
+                        </p>
+
+                        <p className="mt-1 font-bold text-green-700">
+                          {formatCurrency(
+                            completedSale.amountReceived ?? completedSale.paid,
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl bg-red-50 p-3">
+                        <p className="text-xs text-red-600">
+                          Remaining Balance
+                        </p>
+
+                        <p className="mt-1 font-bold text-red-600">
+                          {formatCurrency(completedSale.balance)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {Number(completedSale.changeReturned) > 0 && (
+                      <div className="flex justify-between rounded-lg bg-blue-50 px-3 py-2 text-sm">
+                        <span className="text-blue-700">Change Returned</span>
+
+                        <strong className="text-blue-700">
+                          {formatCurrency(completedSale.changeReturned)}
+                        </strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ACTION BUTTONS */}
+
+                <div className="mt-6 grid grid-cols-2 gap-3">
+                  <button
+                    onClick={handleCloseInvoice}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                  >
+                    <X size={17} />
+                    Close
+                  </button>
+
+                  <button
+                    onClick={printInvoice}
+                    className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700"
+                  >
+                    <Printer size={18} />
+                    Print Invoice
+                  </button>
+                </div>
+
+                {/* EDIT INVOICE */}
               </div>
             </motion.div>
           </div>

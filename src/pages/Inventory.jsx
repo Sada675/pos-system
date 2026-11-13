@@ -65,7 +65,7 @@ const Inventory = () => {
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
+  const [itemsPerPage, setItemsPerPage] = useState(8);
 
   // Persist inventory history
   useEffect(() => {
@@ -277,14 +277,30 @@ const Inventory = () => {
   // Pagination
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
-  const paginatedProducts = filteredProducts.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage,
+  const startIndex = (currentPage - 1) * itemsPerPage;
+
+  const endIndex = Math.min(startIndex + itemsPerPage, filteredProducts.length);
+
+  const paginatedProducts = filteredProducts.slice(startIndex, endIndex);
+
+  const pageNumbers = Array.from(
+    { length: totalPages },
+    (_, index) => index + 1,
   );
 
+  // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [search, categoryFilter, stockFilter, itemsPerPage]);
+
+  // Keep current page valid when filtered products change
+  useEffect(() => {
+    if (totalPages === 0) {
+      setCurrentPage(1);
+    } else if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Open stock reconciliation modal
   const openStockModal = (product) => {
@@ -788,44 +804,80 @@ const Inventory = () => {
         </div>
 
         {/* PAGINATION */}
-        <div className="flex flex-col justify-between gap-4 border-t border-slate-100 p-4 sm:flex-row sm:items-center">
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            Show
-            <select
-              value={itemsPerPage}
-              onChange={(e) => setItemsPerPage(Number(e.target.value))}
-              className="rounded-lg border border-slate-200 bg-white px-2 py-1.5 outline-none"
-            >
-              {[5, 10, 20, 50, 100].map((number) => (
-                <option key={number} value={number}>
-                  {number}
-                </option>
-              ))}
-            </select>
-            entries
+        {/* PAGINATION */}
+        <div className="flex flex-col justify-between gap-4 border-t border-slate-100 p-4 lg:flex-row lg:items-center">
+          {/* LEFT SIDE: ROWS PER PAGE + SHOWING RECORDS */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            {/* ROWS PER PAGE */}
+            <div className="flex items-center gap-2">
+              <span className="whitespace-nowrap text-xs font-medium text-slate-500">
+                Rows per page
+              </span>
+
+              <select
+                value={itemsPerPage}
+                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
+              >
+                {[6, 8, 12, 24, 48].map((size) => (
+                  <option key={size} value={size}>
+                    {size}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* SHOWING RECORDS */}
+            <p className="text-xs font-medium text-slate-500">
+              Showing{" "}
+              <span className="font-bold text-slate-700">
+                {filteredProducts.length === 0 ? 0 : startIndex + 1}–{endIndex}
+              </span>{" "}
+              of{" "}
+              <span className="font-bold text-slate-700">
+                {filteredProducts.length}
+              </span>{" "}
+              products
+            </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-slate-500">
-              Page {totalPages === 0 ? 0 : currentPage} of {totalPages}
-            </span>
-
+          {/* RIGHT SIDE: PAGE NAVIGATION */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* PREVIOUS */}
             <button
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
               disabled={currentPage === 1 || totalPages === 0}
-              className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Previous Page"
             >
-              <ChevronLeft size={18} />
+              <ChevronLeft size={17} />
             </button>
 
+            {/* PAGE NUMBERS */}
+            {pageNumbers.map((page) => (
+              <button
+                key={page}
+                onClick={() => setCurrentPage(page)}
+                className={`flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition ${
+                  currentPage === page
+                    ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                }`}
+              >
+                {page}
+              </button>
+            ))}
+
+            {/* NEXT */}
             <button
               onClick={() =>
                 setCurrentPage((page) => Math.min(totalPages, page + 1))
               }
               disabled={currentPage >= totalPages || totalPages === 0}
-              className="rounded-lg border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50 disabled:opacity-40"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Next Page"
             >
-              <ChevronRight size={18} />
+              <ChevronRight size={17} />
             </button>
           </div>
         </div>
