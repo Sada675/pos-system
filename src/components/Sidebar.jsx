@@ -47,7 +47,9 @@ function Sidebar({ collapsed, setCollapsed }) {
 
           {!collapsed && (
             <div>
-              <h1 className="text-lg font-bold text-white">SteelFlow</h1>
+              <h1 className="text-base font-bold text-white">
+                Yarhussain Steel
+              </h1>
 
               <p className="text-[10px] font-medium tracking-widest text-[#a9c8b8]">
                 POS MANAGEMENT
