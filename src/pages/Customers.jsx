@@ -27,10 +27,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Package,
-  ArrowUpRight,
-  Hash,
   UserRound,
-  CircleDollarSign,
+  ArrowUpRight,
+  FileText,
 } from "lucide-react";
 
 /* =========================================
@@ -104,15 +103,13 @@ const escapeHTML = (value) =>
   });
 
 /* =========================================
-   CUSTOMER VALIDATION
+   VALIDATION
 ========================================= */
 
 const validateCustomerName = (name) => {
-  const value = name.trim();
+  const value = String(name || "").trim();
 
-  if (!value) {
-    return "Customer name is required.";
-  }
+  if (!value) return "Customer name is required.";
 
   if (value.length < 2) {
     return "Name must contain at least 2 characters.";
@@ -122,7 +119,6 @@ const validateCustomerName = (name) => {
     return "Name cannot exceed 60 characters.";
   }
 
-  // English and Urdu letters with spaces and common name punctuation.
   const nameRegex = /^[\p{L}\p{M}]+(?:[ .'-][\p{L}\p{M}]+)*$/u;
 
   if (!nameRegex.test(value)) {
@@ -133,9 +129,7 @@ const validateCustomerName = (name) => {
 };
 
 const validateCustomerPhone = (phone) => {
-  if (!phone.trim()) {
-    return "";
-  }
+  if (!String(phone || "").trim()) return "";
 
   const normalized = normalizePhone(phone);
 
@@ -157,27 +151,56 @@ function StatCard({ item, index }) {
     <motion.div
       initial={{ opacity: 0, y: 15 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.07 }}
-      className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+      transition={{ delay: index * 0.06 }}
+      className="group rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg"
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500">{item.title}</p>
+          <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+            {item.title}
+          </p>
 
-          <h3 className="mt-2 break-words text-xl font-bold text-slate-800">
+          <h3 className="mt-3 break-words text-xl font-bold tracking-tight text-slate-800">
             {item.value}
           </h3>
 
           {item.subtitle && (
-            <p className="mt-1 text-xs text-slate-400">{item.subtitle}</p>
+            <p className="mt-1.5 text-xs text-slate-400">{item.subtitle}</p>
           )}
         </div>
 
-        <div className={`shrink-0 rounded-xl p-3 ${item.color}`}>
-          <Icon size={22} />
+        <div
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${item.color}`}
+        >
+          <Icon size={21} />
         </div>
       </div>
     </motion.div>
+  );
+}
+
+/* =========================================
+   SECTION HEADING
+========================================= */
+
+function SectionHeading({ icon: Icon, title, subtitle, action }) {
+  return (
+    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+          <Icon size={20} />
+        </div>
+
+        <div>
+          <h2 className="font-bold text-slate-800">{title}</h2>
+          {subtitle && (
+            <p className="mt-0.5 text-xs text-slate-400">{subtitle}</p>
+          )}
+        </div>
+      </div>
+
+      {action}
+    </div>
   );
 }
 
@@ -221,13 +244,11 @@ function Customers() {
         const salePhone = normalizePhone(sale.customerPhone);
         const saleName = normalizeName(sale.customerName);
 
-        // Phone number is the primary identifier.
-        if (customerPhone && salePhone) {
-          return customerPhone === salePhone;
+        if (customerPhone) {
+          return salePhone === customerPhone;
         }
 
-        // Name matching is used only when both phone numbers are missing.
-        return !customerPhone && !salePhone && customerName === saleName;
+        return !salePhone && customerName === saleName;
       })
       .sort((a, b) => {
         const dateA = new Date(a.saleDate || a.createdAt || 0).getTime();
@@ -287,15 +308,17 @@ function Customers() {
   ========================================= */
 
   const filteredCustomers = useMemo(() => {
+    const searchText = search.toLowerCase().trim();
+
     return customers
       .filter((customer) => {
-        const searchText = search.toLowerCase().trim();
+        const searchableText = `
+          ${customer.name || ""}
+          ${customer.phone || ""}
+          ${customer.email || ""}
+        `.toLowerCase();
 
-        return `${customer.name || ""} ${
-          customer.phone || ""
-        } ${customer.email || ""}`
-          .toLowerCase()
-          .includes(searchText);
+        return searchableText.includes(searchText);
       })
       .sort((a, b) => {
         const dateA = new Date(a.lastPurchase || a.createdAt || 0).getTime();
@@ -310,17 +333,13 @@ function Customers() {
      GLOBAL STATS
   ========================================= */
 
-  const customerSummaries = customers.map((customer) =>
-    getCustomerSummary(customer),
-  );
-
-  const totalPurchases = customerSummaries.reduce(
-    (total, item) => total + item.totalPurchases,
+  const totalPurchases = sales.reduce(
+    (total, sale) => total + Number(sale.grandTotal || 0),
     0,
   );
 
-  const totalOutstanding = customerSummaries.reduce(
-    (total, item) => total + item.outstanding,
+  const totalOutstanding = sales.reduce(
+    (total, sale) => total + Number(sale.balance || 0),
     0,
   );
 
@@ -351,7 +370,7 @@ function Customers() {
       value: sales.length,
       subtitle: "All completed sales",
       icon: Receipt,
-      color: "bg-purple-50 text-purple-600",
+      color: "bg-violet-50 text-violet-600",
     },
   ];
 
@@ -388,7 +407,6 @@ function Customers() {
 
     if (field === "phone") {
       const phoneError = validateCustomerPhone(value);
-
       const normalized = normalizePhone(value);
 
       const duplicate =
@@ -405,6 +423,10 @@ function Customers() {
       }));
     }
   };
+
+  /* =========================================
+     SUBMIT CUSTOMER
+  ========================================= */
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -429,19 +451,23 @@ function Customers() {
 
     setErrors(newErrors);
 
-    if (newErrors.name || newErrors.phone) {
-      return;
-    }
+    if (newErrors.name || newErrors.phone) return;
 
-    const success = addCustomer({
+    const customerData = {
       ...form,
       name: form.name.trim(),
       phone: normalizedPhone,
       email: form.email.trim(),
       address: form.address.trim(),
-    });
+    };
 
-    if (!success) return;
+    const result = addCustomer(customerData);
+
+    if (!result?.success) {
+      alert(result?.message || "Unable to add customer. Please try again.");
+
+      return;
+    }
 
     resetForm();
     setShowModal(false);
@@ -453,12 +479,20 @@ function Customers() {
 
   const openCustomerDetails = (customer) => {
     setSelectedCustomer(customer);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   };
 
   const closeCustomerDetails = () => {
     setSelectedCustomer(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   };
 
   const handleDelete = (e, customer) => {
@@ -519,12 +553,14 @@ function Customers() {
           <section class="invoice">
             <div class="invoice-header">
               <div>
-                <h3>Invoice #${escapeHTML(
-                  sale.invoiceNumber || `Order ${index + 1}`,
-                )}</h3>
-                <p>${escapeHTML(
-                  formatDateTime(sale.saleDate || sale.createdAt),
-                )}</p>
+                <h3>
+                  Invoice #${escapeHTML(
+                    sale.invoiceNumber || `Order ${index + 1}`,
+                  )}
+                </h3>
+                <p>
+                  ${escapeHTML(formatDateTime(sale.saleDate || sale.createdAt))}
+                </p>
               </div>
 
               <strong class="status">
@@ -591,11 +627,7 @@ function Customers() {
             h1 { margin: 0; font-size: 24px; }
             h2 { font-size: 18px; }
             h3 { margin: 0; font-size: 16px; }
-
-            p {
-              margin: 7px 0;
-              font-size: 12px;
-            }
+            p { margin: 7px 0; font-size: 12px; }
 
             .customer-info {
               padding: 18px;
@@ -695,10 +727,26 @@ function Customers() {
 
           <div class="customer-info">
             <h2>Customer Information</h2>
+
             <p><strong>Name:</strong> ${escapeHTML(customer.name)}</p>
-            <p><strong>Phone:</strong> ${escapeHTML(customer.phone || "N/A")}</p>
-            <p><strong>Email:</strong> ${escapeHTML(customer.email || "N/A")}</p>
-            <p><strong>Address:</strong> ${escapeHTML(customer.address || "N/A")}</p>
+
+            ${
+              customer.phone?.trim()
+                ? `<p><strong>Phone:</strong> ${escapeHTML(customer.phone)}</p>`
+                : ""
+            }
+
+            ${
+              customer.email?.trim()
+                ? `<p><strong>Email:</strong> ${escapeHTML(customer.email)}</p>`
+                : ""
+            }
+
+            ${
+              customer.address?.trim()
+                ? `<p><strong>Address:</strong> ${escapeHTML(customer.address)}</p>`
+                : ""
+            }
           </div>
 
           <div class="summary">
@@ -748,7 +796,10 @@ function Customers() {
   ========================================= */
 
   if (selectedCustomer) {
-    const customer = selectedCustomer;
+    const customer =
+      customers.find((item) => item.id === selectedCustomer.id) ||
+      selectedCustomer;
+
     const summary = getCustomerSummary(customer);
     const customerSales = summary.customerSales;
 
@@ -758,50 +809,65 @@ function Customers() {
         value: summary.totalOrders,
         icon: Receipt,
         color: "bg-blue-50 text-blue-600",
+        subtitle: "Completed purchases",
       },
       {
         title: "Total Purchases",
         value: formatCurrency(summary.totalPurchases),
         icon: ShoppingBag,
         color: "bg-emerald-50 text-emerald-600",
+        subtitle: "Lifetime purchase value",
       },
       {
         title: "Total Paid",
         value: formatCurrency(summary.totalPaid),
         icon: CreditCard,
-        color: "bg-purple-50 text-purple-600",
+        color: "bg-violet-50 text-violet-600",
+        subtitle: "Payments received",
       },
       {
         title: "Outstanding",
         value: formatCurrency(summary.outstanding),
         icon: Wallet,
         color: "bg-orange-50 text-orange-600",
+        subtitle: "Remaining amount",
       },
     ];
+
+    const paymentProgress = summary.totalPurchases
+      ? Math.min(
+          100,
+          Math.max(0, (summary.totalPaid / summary.totalPurchases) * 100),
+        )
+      : 0;
+
+    const latestSale = customerSales[0];
 
     return (
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="space-y-6"
+        className="space-y-6 pb-8"
       >
-        {/* DETAIL HEADER */}
+        {/* PAGE HEADER */}
 
         <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <button
               onClick={closeCustomerDetails}
-              className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
             >
               <ArrowLeft size={20} />
             </button>
 
             <div>
-              <p className="text-sm font-semibold text-blue-600">
-                Customer Management / Profile
-              </p>
+              <div className="flex items-center gap-2 text-xs font-semibold text-blue-600">
+                <span>Customers</span>
+                <ChevronRight size={13} />
+                <span className="text-slate-400">Customer Profile</span>
+              </div>
 
-              <h1 className="mt-1 text-2xl font-bold text-slate-800">
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-slate-800">
                 Customer Details
               </h1>
             </div>
@@ -809,130 +875,165 @@ function Customers() {
 
           <button
             onClick={() => handlePrintHistory(customer)}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-100 transition hover:bg-blue-700"
+            className="flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200 transition hover:bg-blue-700"
           >
-            <Printer size={18} />
+            <Printer size={17} />
             Print Purchase History
           </button>
         </div>
 
-        {/* PROFILE CARD */}
+        {/* CUSTOMER PROFILE HERO */}
 
-        <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="relative h-32 overflow-hidden bg-gradient-to-r from-blue-800 via-blue-600 to-indigo-600">
-            <div className="absolute -right-10 -top-20 h-60 w-60 rounded-full border-[35px] border-white/10" />
-            <div className="absolute -bottom-24 right-40 h-48 w-48 rounded-full border-[25px] border-white/10" />
+        <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+          <div className="relative overflow-hidden bg-gradient-to-r from-slate-950 via-blue-950 to-blue-800 px-6 py-8 sm:px-8">
+            <div className="absolute -right-16 -top-28 h-72 w-72 rounded-full border-[35px] border-white/5" />
+            <div className="absolute -bottom-36 right-1/3 h-72 w-72 rounded-full border-[35px] border-white/5" />
 
-            <div className="absolute left-6 top-6">
-              <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-white backdrop-blur-md">
-                Customer Profile
-              </span>
-            </div>
-          </div>
-
-          <div className="px-6 pb-6">
-            <div className="-mt-12 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
-              <div className="flex items-end gap-4">
-                <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl border-4 border-white bg-blue-50 text-3xl font-bold text-blue-600 shadow-md">
-                  {customer.name?.charAt(0)?.toUpperCase() || "C"}
-                </div>
-
-                <div className="pb-2">
-                  <h2 className="text-xl font-bold text-slate-800 sm:text-2xl">
-                    {customer.name}
-                  </h2>
-
-                  <p className="mt-1 text-xs font-medium text-slate-400">
-                    Customer ID: {customer.id || "N/A"}
-                  </p>
-                </div>
-              </div>
-
-              <span className="flex w-fit items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-xs font-bold text-emerald-600">
-                <CheckCircle2 size={15} />
-                Registered Customer
-              </span>
-            </div>
-
-            {/* CUSTOMER CONTACT INFORMATION */}
-
-            <div className="mt-7 grid grid-cols-1 gap-4 border-t border-slate-100 pt-6 md:grid-cols-3">
-              <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
-                <div className="rounded-xl bg-blue-100 p-3 text-blue-600">
-                  <Phone size={19} />
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-400">Phone Number</p>
-
-                  <p className="mt-1 break-all text-sm font-semibold text-slate-700">
-                    {customer.phone || "Not provided"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
-                <div className="rounded-xl bg-purple-100 p-3 text-purple-600">
-                  <Mail size={19} />
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-400">Email Address</p>
-
-                  <p className="mt-1 break-all text-sm font-semibold text-slate-700">
-                    {customer.email || "Not provided"}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3 rounded-xl bg-slate-50 p-4">
-                <div className="rounded-xl bg-orange-100 p-3 text-orange-600">
-                  <MapPin size={19} />
-                </div>
-
-                <div className="min-w-0">
-                  <p className="text-xs text-slate-400">Address</p>
-
-                  <p className="mt-1 break-words text-sm font-semibold text-slate-700">
-                    {customer.address || "Not provided"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* PURCHASE STATISTICS */}
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {detailStats.map((item, index) => (
-            <StatCard key={item.title} item={item} index={index} />
-          ))}
-        </div>
-
-        {/* PURCHASE INSIGHTS */}
-
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm lg:col-span-2">
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-blue-50 p-2 text-blue-600">
-                <TrendingUp size={19} />
-              </div>
-
+            <div className="relative z-10 flex flex-wrap items-center justify-between gap-4">
               <div>
-                <h3 className="font-bold text-slate-800">Purchase Overview</h3>
+                <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-semibold text-blue-100">
+                  <UserRound size={14} />
+                  Customer Profile
+                </span>
 
-                <p className="text-xs text-slate-400">
-                  Customer purchasing performance
+                <p className="mt-4 text-sm text-blue-100/70">Customer ID</p>
+
+                <p className="mt-1 text-sm font-semibold text-white">
+                  #{customer.id || "N/A"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3 backdrop-blur-md">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                  <CheckCircle2 size={15} />
+                  Registered Customer
+                </div>
+
+                <p className="mt-1 text-xs text-blue-100/70">
+                  Customer account active
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="px-6 pb-6 sm:px-8">
+            <div className=" flex flex-col gap-5 sm:flex-row sm:items-end">
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-3xl border-4 border-white bg-blue-50 text-3xl font-extrabold text-blue-700 shadow-lg">
+                {customer.name?.charAt(0)?.toUpperCase() || "C"}
+              </div>
+
+              <div className="min-w-0 pb-1">
+                <h2 className="break-words text-2xl font-bold text-slate-900">
+                  {customer.name}
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-400">
+                  Customer since {formatDate(customer.createdAt)}
                 </p>
               </div>
             </div>
 
-            <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-3">
-              <div>
-                <p className="text-xs text-slate-400">Average Order Value</p>
+            {/* CONTACT INFORMATION */}
 
-                <h3 className="mt-2 text-xl font-bold text-slate-800">
+            {(customer.phone?.trim() ||
+              customer.email?.trim() ||
+              customer.address?.trim()) && (
+              <div className="mt-7 grid grid-cols-1 gap-3 border-t border-slate-100 pt-6 md:grid-cols-3">
+                {customer.phone?.trim() && (
+                  <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                      <Phone size={18} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        Phone Number
+                      </p>
+
+                      <p className="mt-1 break-all text-sm font-semibold text-slate-700">
+                        {customer.phone}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {customer.email?.trim() && (
+                  <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-600">
+                      <Mail size={18} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        Email Address
+                      </p>
+
+                      <p className="mt-1 break-all text-sm font-semibold text-slate-700">
+                        {customer.email}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {customer.address?.trim() && (
+                  <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
+                      <MapPin size={18} />
+                    </div>
+
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                        Address
+                      </p>
+
+                      <p className="mt-1 break-words text-sm font-semibold text-slate-700">
+                        {customer.address}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* CUSTOMER STATISTICS */}
+
+        <div>
+          <div className="mb-4">
+            <h2 className="font-bold text-slate-800">Purchase Statistics</h2>
+
+            <p className="mt-1 text-xs text-slate-400">
+              Overview of this customer's transactions
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {detailStats.map((item, index) => (
+              <StatCard key={item.title} item={item} index={index} />
+            ))}
+          </div>
+        </div>
+
+        {/* PURCHASE OVERVIEW + LAST ACTIVITY */}
+
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+          {/* PURCHASE OVERVIEW */}
+
+          <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-sm sm:p-6 xl:col-span-2">
+            <SectionHeading
+              icon={TrendingUp}
+              title="Purchase Overview"
+              subtitle="Customer purchasing and payment performance"
+            />
+
+            <div className="mt-7 grid grid-cols-1 gap-6 sm:grid-cols-3">
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-medium text-slate-400">
+                  Average Order Value
+                </p>
+
+                <h3 className="mt-2 break-words text-xl font-bold text-slate-800">
                   {formatCurrency(
                     summary.totalOrders
                       ? summary.totalPurchases / summary.totalOrders
@@ -941,110 +1042,177 @@ function Customers() {
                 </h3>
               </div>
 
-              <div>
-                <p className="text-xs text-slate-400">Total Items Purchased</p>
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-medium text-slate-400">
+                  Items Purchased
+                </p>
 
                 <h3 className="mt-2 text-xl font-bold text-slate-800">
                   {summary.totalItems}
                 </h3>
               </div>
 
-              <div>
-                <p className="text-xs text-slate-400">Last Purchase</p>
+              <div className="rounded-xl bg-slate-50 p-4">
+                <p className="text-xs font-medium text-slate-400">
+                  Last Purchase
+                </p>
 
-                <h3 className="mt-2 text-sm font-bold text-slate-800">
+                <h3 className="mt-2 text-base font-bold text-slate-800">
                   {formatDate(summary.lastPurchase)}
                 </h3>
               </div>
             </div>
 
-            <div className="mt-6 border-t border-slate-100 pt-5">
-              <div className="mb-2 flex justify-between text-xs">
-                <span className="font-medium text-slate-500">
-                  Payment Progress
-                </span>
+            {/* PAYMENT PROGRESS */}
 
-                <strong className="text-emerald-600">
-                  {summary.totalPurchases
-                    ? Math.min(
-                        100,
-                        (summary.totalPaid / summary.totalPurchases) * 100,
-                      ).toFixed(1)
-                    : 0}
-                  %
-                </strong>
+            <div className="mt-7 rounded-2xl border border-slate-100 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-slate-800">
+                    Payment Progress
+                  </h3>
+
+                  <p className="mt-1 text-xs text-slate-400">
+                    Total amount paid against purchases
+                  </p>
+                </div>
+
+                <span className="rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-bold text-emerald-600">
+                  {paymentProgress.toFixed(1)}%
+                </span>
               </div>
 
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400 transition-all"
-                  style={{
-                    width: `${
-                      summary.totalPurchases
-                        ? Math.min(
-                            100,
-                            (summary.totalPaid / summary.totalPurchases) * 100,
-                          )
-                        : 0
-                    }%`,
-                  }}
+              <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${paymentProgress}%` }}
+                  transition={{ duration: 0.8 }}
+                  className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400"
                 />
               </div>
 
-              <div className="mt-3 flex justify-between text-xs">
-                <span className="text-emerald-600">
-                  Paid: {formatCurrency(summary.totalPaid)}
-                </span>
+              <div className="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                    <p className="text-xs text-slate-400">Paid Amount</p>
+                  </div>
 
-                <span className="text-orange-600">
-                  Remaining: {formatCurrency(summary.outstanding)}
-                </span>
+                  <p className="mt-1 text-sm font-bold text-emerald-600">
+                    {formatCurrency(summary.totalPaid)}
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <p className="text-xs text-slate-400">Remaining Balance</p>
+                    <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
+                  </div>
+
+                  <p className="mt-1 text-sm font-bold text-orange-600">
+                    {formatCurrency(summary.outstanding)}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* LAST PURCHASE */}
+          {/* LAST ACTIVITY */}
 
-          <div className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-orange-50 p-2 text-orange-600">
-                <Clock size={19} />
-              </div>
-
-              <div>
-                <h3 className="font-bold text-slate-800">Last Activity</h3>
-
-                <p className="text-xs text-slate-400">Most recent purchase</p>
-              </div>
+          <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm">
+            <div className="border-b border-slate-100 p-5">
+              <SectionHeading
+                icon={Clock}
+                title="Last Activity"
+                subtitle="Most recent transaction"
+              />
             </div>
 
-            {customerSales.length > 0 ? (
-              <div className="mt-6">
-                <p className="text-xs text-slate-400">Last Invoice</p>
+            {latestSale ? (
+              <div className="p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                    <Receipt size={22} />
+                  </div>
 
-                <h3 className="mt-2 text-lg font-bold text-blue-600">
-                  #{customerSales[0].invoiceNumber || "N/A"}
-                </h3>
+                  <div className="min-w-0">
+                    <p className="text-xs text-slate-400">Latest Invoice</p>
 
-                <p className="mt-2 text-sm text-slate-500">
-                  {formatDateTime(
-                    customerSales[0].saleDate || customerSales[0].createdAt,
-                  )}
-                </p>
+                    <h3 className="mt-1 truncate font-bold text-slate-800">
+                      #{latestSale.invoiceNumber || "N/A"}
+                    </h3>
+                  </div>
+                </div>
 
-                <div className="mt-5 rounded-xl bg-blue-50 p-4">
-                  <p className="text-xs text-blue-500">Invoice Amount</p>
+                <div className="mt-5 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-400">Date</span>
 
-                  <h3 className="mt-1 text-xl font-bold text-blue-700">
-                    {formatCurrency(customerSales[0].grandTotal)}
+                    <span className="text-right text-xs font-semibold text-slate-700">
+                      {formatDateTime(
+                        latestSale.saleDate || latestSale.createdAt,
+                      )}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-400">
+                      Payment Status
+                    </span>
+
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                        Number(latestSale.balance || 0) > 0
+                          ? "bg-orange-50 text-orange-600"
+                          : "bg-emerald-50 text-emerald-600"
+                      }`}
+                    >
+                      {Number(latestSale.balance || 0) > 0 ? "Pending" : "Paid"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-slate-400">
+                      Payment Method
+                    </span>
+
+                    <span className="text-xs font-semibold text-slate-700">
+                      {latestSale.paymentMethod || "N/A"}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-6 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-800 p-5 text-white">
+                  <p className="text-xs font-medium text-blue-100">
+                    Latest Invoice Amount
+                  </p>
+
+                  <h3 className="mt-2 break-words text-2xl font-bold">
+                    {formatCurrency(latestSale.grandTotal)}
                   </h3>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-white/20 pt-3">
+                    <span className="text-xs text-blue-100">Outstanding</span>
+
+                    <span className="text-sm font-bold">
+                      {formatCurrency(latestSale.balance)}
+                    </span>
+                  </div>
                 </div>
               </div>
             ) : (
-              <div className="mt-6 rounded-xl bg-slate-50 p-4 text-center">
-                <ShoppingBag size={25} className="mx-auto text-slate-300" />
+              <div className="flex min-h-[280px] flex-col items-center justify-center p-6 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+                  <ShoppingBag size={25} />
+                </div>
 
-                <p className="mt-2 text-sm text-slate-400">No purchases yet.</p>
+                <h3 className="mt-4 font-bold text-slate-700">
+                  No Activity Yet
+                </h3>
+
+                <p className="mt-1 text-sm text-slate-400">
+                  This customer has not made any purchases.
+                </p>
               </div>
             )}
           </div>
@@ -1052,28 +1220,22 @@ function Customers() {
 
         {/* PURCHASE HISTORY */}
 
-        <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-          <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-3">
-              <div className="rounded-xl bg-blue-50 p-3 text-blue-600">
-                <Receipt size={21} />
-              </div>
-
-              <div>
-                <h2 className="font-bold text-slate-800">Purchase History</h2>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  All invoices and purchased products
-                </p>
-              </div>
-            </div>
-
-            <span className="w-fit rounded-lg bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600">
-              {customerSales.length} Invoices
-            </span>
+        <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm">
+          <div className="border-b border-slate-100 p-5 sm:p-6">
+            <SectionHeading
+              icon={FileText}
+              title="Purchase History"
+              subtitle="Complete record of customer invoices and purchased products"
+              action={
+                <span className="flex w-fit items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-600">
+                  <Receipt size={15} />
+                  {customerSales.length} Invoices
+                </span>
+              }
+            />
           </div>
 
-          <div className="space-y-5 p-5">
+          <div className="space-y-5 p-4 sm:p-6">
             {customerSales.map((sale, index) => {
               const items = sale.items || [];
               const hasBalance = Number(sale.balance || 0) > 0;
@@ -1083,27 +1245,27 @@ function Customers() {
                   key={sale.id || sale.invoiceNumber || index}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="overflow-hidden rounded-2xl border border-slate-200 transition hover:border-blue-200 hover:shadow-md"
+                  transition={{ delay: index * 0.04 }}
+                  className="overflow-hidden rounded-2xl border border-slate-200 transition duration-300 hover:border-blue-200 hover:shadow-md"
                 >
                   {/* INVOICE HEADER */}
 
-                  <div className="flex flex-col justify-between gap-4 bg-slate-50 p-5 sm:flex-row sm:items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
+                  <div className="flex flex-col justify-between gap-4 bg-slate-50/80 p-4 sm:flex-row sm:items-center sm:p-5">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600">
                         <Receipt size={21} />
                       </div>
 
-                      <div>
-                        <p className="text-xs font-medium text-slate-400">
-                          INVOICE NUMBER
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          Invoice Number
                         </p>
 
-                        <h3 className="mt-1 font-bold text-slate-800">
+                        <h3 className="mt-1 truncate font-bold text-slate-800">
                           #{sale.invoiceNumber || "N/A"}
                         </h3>
 
-                        <p className="mt-1 flex items-center gap-1 text-xs text-slate-500">
+                        <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
                           <CalendarDays size={13} />
 
                           {formatDateTime(sale.saleDate || sale.createdAt)}
@@ -1111,7 +1273,7 @@ function Customers() {
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3 sm:justify-end">
                       <span
                         className={`flex items-center gap-1.5 rounded-full px-3 py-2 text-xs font-bold ${
                           hasBalance
@@ -1128,10 +1290,12 @@ function Customers() {
                         {hasBalance ? "Payment Pending" : "Fully Paid"}
                       </span>
 
-                      <div className="text-right">
-                        <p className="text-xs text-slate-400">Invoice Total</p>
+                      <div className="sm:text-right">
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                          Invoice Total
+                        </p>
 
-                        <p className="mt-1 text-lg font-bold text-blue-600">
+                        <p className="mt-1 text-lg font-bold text-blue-700">
                           {formatCurrency(sale.grandTotal)}
                         </p>
                       </div>
@@ -1141,13 +1305,13 @@ function Customers() {
                   {/* PRODUCT TABLE */}
 
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[550px] text-left">
-                      <thead className="bg-white text-xs uppercase tracking-wide text-slate-400">
+                    <table className="w-full min-w-[540px] text-left">
+                      <thead className="bg-white text-[10px] font-bold uppercase tracking-wider text-slate-400">
                         <tr>
                           <th className="px-5 py-4">Product</th>
                           <th className="px-5 py-4">Quantity</th>
                           <th className="px-5 py-4">Unit Price</th>
-                          <th className="px-5 py-4">Total</th>
+                          <th className="px-5 py-4 text-right">Total</th>
                         </tr>
                       </thead>
 
@@ -1155,27 +1319,27 @@ function Customers() {
                         {items.map((item, itemIndex) => (
                           <tr
                             key={item.id || itemIndex}
-                            className="transition hover:bg-slate-50"
+                            className="transition hover:bg-slate-50/70"
                           >
                             <td className="px-5 py-4">
                               <div className="flex items-center gap-3">
-                                <div className="rounded-lg bg-slate-100 p-2 text-slate-500">
+                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
                                   <Package size={17} />
                                 </div>
 
-                                <div>
+                                <div className="min-w-0">
                                   <p className="text-sm font-semibold text-slate-700">
                                     {item.name || "Product"}
                                   </p>
 
-                                  <p className="mt-1 text-xs text-slate-400">
+                                  <p className="mt-0.5 text-xs text-slate-400">
                                     {item.category || item.size || ""}
                                   </p>
                                 </div>
                               </div>
                             </td>
 
-                            <td className="px-5 py-4 text-sm font-medium text-slate-600">
+                            <td className="px-5 py-4 text-sm font-semibold text-slate-600">
                               {item.quantity || 0}
                             </td>
 
@@ -1183,7 +1347,7 @@ function Customers() {
                               {formatCurrency(item.price)}
                             </td>
 
-                            <td className="px-5 py-4 text-sm font-bold text-slate-700">
+                            <td className="px-5 py-4 text-right text-sm font-bold text-slate-800">
                               {formatCurrency(
                                 item.total ??
                                   Number(item.price || 0) *
@@ -1207,11 +1371,13 @@ function Customers() {
                     </table>
                   </div>
 
-                  {/* INVOICE SUMMARY */}
+                  {/* INVOICE TOTALS */}
 
-                  <div className="grid grid-cols-2 gap-4 border-t border-slate-100 bg-slate-50/70 p-5 sm:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-4 border-t border-slate-100 bg-slate-50/60 p-4 sm:grid-cols-4 sm:p-5">
                     <div>
-                      <p className="text-xs text-slate-400">Subtotal</p>
+                      <p className="text-[11px] font-medium text-slate-400">
+                        Subtotal
+                      </p>
 
                       <p className="mt-1 text-sm font-bold text-slate-700">
                         {formatCurrency(sale.subtotal)}
@@ -1219,7 +1385,9 @@ function Customers() {
                     </div>
 
                     <div>
-                      <p className="text-xs text-slate-400">Discount</p>
+                      <p className="text-[11px] font-medium text-slate-400">
+                        Discount
+                      </p>
 
                       <p className="mt-1 text-sm font-bold text-slate-700">
                         {formatCurrency(sale.discount)}
@@ -1227,7 +1395,9 @@ function Customers() {
                     </div>
 
                     <div>
-                      <p className="text-xs text-slate-400">Paid Amount</p>
+                      <p className="text-[11px] font-medium text-slate-400">
+                        Paid Amount
+                      </p>
 
                       <p className="mt-1 text-sm font-bold text-emerald-600">
                         {formatCurrency(sale.paid)}
@@ -1235,7 +1405,9 @@ function Customers() {
                     </div>
 
                     <div>
-                      <p className="text-xs text-slate-400">Remaining</p>
+                      <p className="text-[11px] font-medium text-slate-400">
+                        Remaining
+                      </p>
 
                       <p className="mt-1 text-sm font-bold text-orange-600">
                         {formatCurrency(sale.balance)}
@@ -1243,20 +1415,23 @@ function Customers() {
                     </div>
                   </div>
 
-                  {/* PAYMENT METHOD */}
+                  {/* PAYMENT FOOTER */}
 
-                  <div className="flex flex-col justify-between gap-2 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center">
+                  <div className="flex flex-col justify-between gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center">
                     <div className="flex items-center gap-2 text-xs text-slate-500">
-                      <CreditCard size={15} />
+                      <CreditCard size={15} className="text-slate-400" />
                       Payment Method:
                       <strong className="text-slate-700">
                         {sale.paymentMethod || "N/A"}
                       </strong>
                     </div>
 
-                    <div className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                      Grand Total:
-                      <span className="text-lg text-blue-600">
+                    <div className="flex items-center justify-between gap-3 sm:justify-end">
+                      <span className="text-xs font-semibold text-slate-500">
+                        Grand Total
+                      </span>
+
+                      <span className="text-lg font-extrabold text-blue-700">
                         {formatCurrency(sale.grandTotal)}
                       </span>
                     </div>
@@ -1265,9 +1440,11 @@ function Customers() {
               );
             })}
 
+            {/* EMPTY HISTORY */}
+
             {customerSales.length === 0 && (
-              <div className="py-16 text-center">
-                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
                   <ShoppingBag size={28} />
                 </div>
 
@@ -1275,8 +1452,9 @@ function Customers() {
                   No Purchase History
                 </h3>
 
-                <p className="mt-1 text-sm text-slate-400">
-                  This customer has not made any purchases yet.
+                <p className="mt-1 max-w-sm text-sm text-slate-400">
+                  This customer has not made any purchases yet. Their invoices
+                  will appear here after a sale.
                 </p>
               </div>
             )}
@@ -1291,19 +1469,22 @@ function Customers() {
   ========================================= */
 
   return (
-    <div className="space-y-7">
-      {/* HEADER */}
+    <div className="space-y-7 pb-8">
+      {/* PAGE HEADER */}
 
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <p className="text-sm font-semibold text-blue-600">
+          <div className="flex items-center gap-2 text-xs font-semibold text-blue-600">
+            <Users size={15} />
             Customer Management
-          </p>
+          </div>
 
-          <h1 className="mt-1 text-2xl font-bold text-slate-800">Customers</h1>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight text-slate-800">
+            Customers
+          </h1>
 
           <p className="mt-1 text-sm text-slate-500">
-            Manage customers and monitor their purchase history.
+            Manage customer profiles and monitor purchase activity.
           </p>
         </div>
 
@@ -1316,7 +1497,7 @@ function Customers() {
         </button>
       </div>
 
-      {/* STATS */}
+      {/* GLOBAL STATS */}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {stats.map((item, index) => (
@@ -1324,15 +1505,17 @@ function Customers() {
         ))}
       </div>
 
-      {/* CUSTOMER TABLE */}
+      {/* CUSTOMERS TABLE */}
 
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 md:flex-row md:items-center">
+      <div className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-sm">
+        {/* TABLE HEADER */}
+
+        <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 sm:p-6 md:flex-row md:items-center">
           <div>
             <h2 className="font-bold text-slate-800">All Customers</h2>
 
             <p className="mt-1 text-xs text-slate-400">
-              {customers.length} registered customers
+              View and manage your registered customers
             </p>
           </div>
 
@@ -1345,18 +1528,20 @@ function Customers() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name, phone or email..."
-              className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-50"
+              placeholder="Search name, phone or email..."
+              className="w-full rounded-xl border border-slate-200 bg-slate-50/70 py-3 pl-10 pr-4 text-sm text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-50"
             />
           </div>
         </div>
 
+        {/* TABLE */}
+
         <div className="overflow-x-auto">
           <table className="w-full min-w-[850px] text-left">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400">
+            <thead className="bg-slate-50/80 text-[10px] font-bold uppercase tracking-wider text-slate-400">
               <tr>
                 <th className="px-6 py-4">Customer</th>
-                <th className="px-6 py-4">Phone</th>
+                <th className="px-6 py-4">Phone Number</th>
                 <th className="px-6 py-4">Orders</th>
                 <th className="px-6 py-4">Total Purchases</th>
                 <th className="px-6 py-4">Outstanding</th>
@@ -1375,15 +1560,15 @@ function Customers() {
                     animate={{ opacity: 1 }}
                     transition={{ delay: index * 0.025 }}
                     onClick={() => openCustomerDetails(customer)}
-                    className="cursor-pointer transition hover:bg-blue-50/60"
+                    className="cursor-pointer transition hover:bg-blue-50/50"
                   >
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-blue-50 font-bold text-blue-600">
+                        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-sm font-bold text-blue-600">
                           {customer.name?.charAt(0)?.toUpperCase() || "C"}
                         </div>
 
-                        <div>
+                        <div className="min-w-0">
                           <p className="font-semibold text-slate-700">
                             {customer.name}
                           </p>
@@ -1399,13 +1584,13 @@ function Customers() {
 
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 text-sm text-slate-500">
-                        <Phone size={14} />
+                        <Phone size={14} className="text-slate-400" />
                         {customer.phone || "N/A"}
                       </div>
                     </td>
 
                     <td className="px-6 py-4">
-                      <span className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-bold text-blue-600">
+                      <span className="inline-flex min-w-9 items-center justify-center rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-bold text-blue-600">
                         {summary.totalOrders}
                       </span>
                     </td>
@@ -1475,12 +1660,14 @@ function Customers() {
           </table>
         </div>
 
+        {/* TABLE FOOTER */}
+
         <div className="flex flex-col justify-between gap-2 border-t border-slate-100 px-5 py-4 text-xs text-slate-400 sm:flex-row sm:items-center">
           <span>
             Showing {filteredCustomers.length} of {customers.length} customers
           </span>
 
-          <span>Click a customer row to view complete purchase history.</span>
+          <span>Select a customer to view complete purchase history.</span>
         </div>
       </div>
 
@@ -1499,9 +1686,21 @@ function Customers() {
             }}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              initial={{
+                opacity: 0,
+                scale: 0.95,
+                y: 15,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+                scale: 0.95,
+                y: 15,
+              }}
               onClick={(e) => e.stopPropagation()}
               className="my-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl"
             >

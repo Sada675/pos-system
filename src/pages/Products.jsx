@@ -6,7 +6,6 @@ import {
   Plus,
   Search,
   Package,
-  Boxes,
   AlertTriangle,
   Pencil,
   Trash2,
@@ -18,7 +17,6 @@ import {
   PackageX,
   CircleDollarSign,
   SlidersHorizontal,
-  ArrowUpRight,
 } from "lucide-react";
 
 // ===================================
@@ -57,7 +55,7 @@ const getStockStatus = (product) => {
 // ===================================
 
 function Products() {
-  const { products, setProducts, categories } = useProducts();
+  const { products = [], setProducts, categories = [] } = useProducts();
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -250,6 +248,7 @@ function Products() {
 
     const finalUnit = isCustomUnit ? form.customUnit.trim() : form.unit;
 
+    // Required fields validation
     if (
       !form.name.trim() ||
       !form.size.trim() ||
@@ -269,6 +268,7 @@ function Products() {
       return;
     }
 
+    // Category validation
     const categoryExists = categories.some(
       (category) => category.name === form.category,
     );
@@ -278,6 +278,7 @@ function Products() {
       return;
     }
 
+    // Number validation
     if (
       !Number.isFinite(purchasePrice) ||
       !Number.isFinite(sellingPrice) ||
@@ -379,6 +380,7 @@ function Products() {
         </div>
 
         <button
+          type="button"
           onClick={openAddModal}
           disabled={categories.length === 0}
           className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -450,6 +452,7 @@ function Products() {
 
             {(search || categoryFilter !== "All" || stockFilter !== "All") && (
               <button
+                type="button"
                 onClick={resetFilters}
                 className="text-xs font-semibold text-red-500 hover:text-red-700"
               >
@@ -461,7 +464,7 @@ function Products() {
           {/* SEARCH AND FILTERS */}
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-            <div className="relative md:col-span-1">
+            <div className="relative">
               <Search
                 size={17}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
@@ -521,18 +524,33 @@ function Products() {
 
         <div className="bg-slate-50/60 p-3 sm:p-4">
           {currentProducts.length > 0 ? (
-            <div className="space-y-2">
-              <AnimatePresence mode="popLayout">
-                {currentProducts.map((product) => (
-                  <ProductCard
-                    key={product.id}
-                    product={product}
-                    status={getStockStatus(product)}
-                    onEdit={() => openEditModal(product)}
-                    onDelete={() => handleDelete(product.id)}
-                  />
-                ))}
-              </AnimatePresence>
+            <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+              <div className="min-w-[900px]">
+                {/* COMMON TABLE HEADER */}
+
+                <div className="grid grid-cols-[minmax(220px,1.5fr)_minmax(150px,1fr)_minmax(120px,.8fr)_minmax(120px,.8fr)_minmax(120px,.8fr)_90px] items-center gap-4 border-b border-slate-200 bg-slate-100/80 px-4 py-3 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                  <span>Product</span>
+                  <span>Available Stock</span>
+                  <span>Purchase Price</span>
+                  <span>Selling Price</span>
+                  <span>Profit / Unit</span>
+                  <span className="text-center">Actions</span>
+                </div>
+
+                {/* PRODUCT ROWS */}
+
+                <AnimatePresence mode="popLayout">
+                  {currentProducts.map((product) => (
+                    <ProductCard
+                      key={product.id}
+                      product={product}
+                      status={getStockStatus(product)}
+                      onEdit={() => openEditModal(product)}
+                      onDelete={() => handleDelete(product.id)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
             </div>
           ) : (
             <div className="rounded-xl border border-dashed border-slate-300 bg-white px-5 py-14 text-center">
@@ -552,6 +570,7 @@ function Products() {
 
               {products.length === 0 ? (
                 <button
+                  type="button"
                   onClick={openAddModal}
                   disabled={categories.length === 0}
                   className="mt-4 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
@@ -561,6 +580,7 @@ function Products() {
                 </button>
               ) : (
                 <button
+                  type="button"
                   onClick={resetFilters}
                   className="mt-4 text-sm font-semibold text-blue-600 hover:text-blue-700"
                 >
@@ -575,7 +595,7 @@ function Products() {
 
         {filteredProducts.length > 0 && (
           <div className="flex flex-col gap-4 border-t border-slate-100 bg-white px-4 py-4 sm:px-5 lg:flex-row lg:items-center lg:justify-between">
-            {/* LEFT SIDE: ROWS + RECORD INFO */}
+            {/* LEFT SIDE */}
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <div className="flex items-center gap-2">
@@ -612,7 +632,7 @@ function Products() {
               </p>
             </div>
 
-            {/* RIGHT SIDE: PAGE NAVIGATION */}
+            {/* RIGHT SIDE */}
 
             <div className="flex flex-wrap items-center gap-1.5">
               {/* PREVIOUS */}
@@ -621,7 +641,7 @@ function Products() {
                 type="button"
                 onClick={handlePrevious}
                 disabled={currentPage === 1}
-                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ChevronLeft size={15} />
                 <span>Previous</span>
@@ -655,7 +675,7 @@ function Products() {
                 type="button"
                 onClick={handleNext}
                 disabled={currentPage === totalPages}
-                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-600"
+                className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <span>Next</span>
                 <ChevronRight size={15} />
@@ -898,31 +918,29 @@ function ProductCard({ product, status, onEdit, onDelete }) {
     "In Stock": {
       badge: "bg-emerald-50 text-emerald-700",
       dot: "bg-emerald-500",
-      icon: "bg-emerald-50 text-emerald-600",
-      bar: "bg-emerald-500",
+      progress: "bg-emerald-500",
     },
 
     "Low Stock": {
       badge: "bg-orange-50 text-orange-700",
       dot: "bg-orange-500",
-      icon: "bg-orange-50 text-orange-600",
-      bar: "bg-orange-500",
+      progress: "bg-orange-500",
     },
 
     "Out of Stock": {
       badge: "bg-red-50 text-red-700",
       dot: "bg-red-500",
-      icon: "bg-red-50 text-red-600",
-      bar: "bg-red-500",
+      progress: "bg-red-500",
     },
   };
 
-  const currentStatus = statusStyles[status];
+  const currentStatus = statusStyles[status] || statusStyles["In Stock"];
 
   const stock = Number(product.stock) || 0;
   const minStock = Number(product.minStock) || 0;
 
   const purchasePrice = Number(product.purchasePrice) || 0;
+
   const sellingPrice = Number(product.sellingPrice) || 0;
 
   const profit = sellingPrice - purchasePrice;
@@ -942,117 +960,97 @@ function ProductCard({ product, status, onEdit, onDelete }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, x: -10 }}
       transition={{ duration: 0.2 }}
-      className="rounded-lg border border-slate-200 bg-white p-4 transition hover:border-blue-200"
+      className="grid grid-cols-[minmax(220px,1.5fr)_minmax(150px,1fr)_minmax(120px,.8fr)_minmax(120px,.8fr)_minmax(120px,.8fr)_90px] items-center gap-4 border-b border-slate-100 px-4 py-3.5 transition last:border-b-0 hover:bg-blue-50/30"
     >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center">
-        {/* PRODUCT INFO */}
+      {/* PRODUCT */}
 
-        <div className="flex min-w-0 items-center gap-3 lg:w-[25%]">
-          <div
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-lg ${currentStatus.icon}`}
-          >
-            <Package size={21} />
-          </div>
-
-          <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm font-bold text-slate-800">
-              {product.name}
-            </h3>
-
-            <p className="mt-0.5 truncate text-xs text-slate-500">
-              {product.category}
-              <span className="mx-1.5 text-slate-300">•</span>
-              {product.size}
-            </p>
-
-            <span
-              className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-[10px] font-semibold ${currentStatus.badge}`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${currentStatus.dot}`}
-              />
-              {status}
-            </span>
-          </div>
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+          <Package size={19} />
         </div>
 
-        {/* STOCK */}
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-bold text-slate-800">
+            {product.name}
+          </h3>
 
-        <div className="flex-1">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-slate-500">Available Stock</span>
-
-            <span className="text-sm font-bold text-slate-800">
-              {stock.toLocaleString()}{" "}
-              <span className="text-xs font-medium text-slate-400">{unit}</span>
-            </span>
-          </div>
-
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className={`h-full rounded-full transition-all ${currentStatus.bar}`}
-              style={{ width: `${stockPercentage}%` }}
-            />
-          </div>
-
-          <p className="mt-1.5 text-[10px] text-slate-400">
-            Minimum level: {minStock} {unit}
+          <p className="mt-0.5 truncate text-xs text-slate-500">
+            {product.category}
+            <span className="mx-1.5 text-slate-300">•</span>
+            {product.size}
           </p>
-        </div>
 
-        {/* PRICES */}
-
-        <div className="grid grid-cols-3 gap-3 border-t border-slate-100 pt-3 sm:grid-cols-3 lg:w-[35%] lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
-          <div>
-            <p className="text-[10px] font-medium text-slate-400">Purchase</p>
-
-            <p className="mt-1 text-xs font-semibold text-slate-700">
-              {formatCurrency(purchasePrice)}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-[10px] font-medium text-slate-400">Selling</p>
-
-            <p className="mt-1 text-xs font-semibold text-slate-800">
-              {formatCurrency(sellingPrice)}
-            </p>
-          </div>
-
-          <div>
-            <p className="text-[10px] font-medium text-slate-400">
-              Profit / {unit}
-            </p>
-
-            <p
-              className={`mt-1 text-xs font-semibold ${profit >= 0 ? "text-emerald-600" : "text-red-600"}`}
-            >
-              {formatCurrency(profit)}
-            </p>
-          </div>
-        </div>
-
-        {/* ACTIONS */}
-
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-          <button
-            type="button"
-            onClick={onEdit}
-            title="Edit Product"
-            className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+          <span
+            className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${currentStatus.badge}`}
           >
-            <Pencil size={16} />
-          </button>
-
-          <button
-            type="button"
-            onClick={onDelete}
-            title="Delete Product"
-            className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
-          >
-            <Trash2 size={16} />
-          </button>
+            <span className={`h-1.5 w-1.5 rounded-full ${currentStatus.dot}`} />
+            {status}
+          </span>
         </div>
+      </div>
+
+      {/* STOCK */}
+
+      <div className="min-w-0">
+        <p className="text-sm font-bold text-slate-800">
+          {stock.toLocaleString()}{" "}
+          <span className="text-xs font-medium text-slate-400">{unit}</span>
+        </p>
+
+        <div className="mt-1.5 h-1.5 max-w-28 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className={`h-full rounded-full transition-all ${currentStatus.progress}`}
+            style={{ width: `${stockPercentage}%` }}
+          />
+        </div>
+
+        <p className="mt-1 text-[10px] text-slate-400">
+          Min: {minStock} {unit}
+        </p>
+      </div>
+
+      {/* PURCHASE PRICE */}
+
+      <p className="text-sm font-semibold text-slate-700">
+        {formatCurrency(purchasePrice)}
+      </p>
+
+      {/* SELLING PRICE */}
+
+      <p className="text-sm font-semibold text-slate-800">
+        {formatCurrency(sellingPrice)}
+      </p>
+
+      {/* PROFIT */}
+
+      <p
+        className={`text-sm font-semibold ${
+          profit >= 0 ? "text-emerald-600" : "text-red-600"
+        }`}
+      >
+        {formatCurrency(profit)}
+      </p>
+
+      {/* ACTIONS */}
+
+      <div className="flex items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Edit Product"
+          className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+        >
+          <Pencil size={15} />
+        </button>
+
+        <button
+          type="button"
+          onClick={onDelete}
+          title="Delete Product"
+          className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+        >
+          <Trash2 size={15} />
+        </button>
       </div>
     </motion.div>
   );
@@ -1074,24 +1072,26 @@ function StatBox({
   const colorClasses = {
     blue: {
       icon: "bg-blue-50 text-blue-600",
-      active: "border-blue-300",
+      active: "border-blue-300 ring-2 ring-blue-50",
     },
 
     emerald: {
       icon: "bg-emerald-50 text-emerald-600",
-      active: "border-emerald-300",
+      active: "border-emerald-300 ring-2 ring-emerald-50",
     },
 
     orange: {
       icon: "bg-orange-50 text-orange-600",
-      active: "border-orange-300",
+      active: "border-orange-300 ring-2 ring-orange-50",
     },
 
     red: {
       icon: "bg-red-50 text-red-600",
-      active: "border-red-300",
+      active: "border-red-300 ring-2 ring-red-50",
     },
   };
+
+  const selectedColor = colorClasses[color] || colorClasses.blue;
 
   return (
     <motion.button
@@ -1099,14 +1099,14 @@ function StatBox({
       onClick={onClick}
       whileTap={{ scale: 0.98 }}
       className={`w-full rounded-xl border bg-white p-4 text-left transition hover:border-slate-300 ${
-        active ? colorClasses[color].active : "border-slate-200"
+        active ? selectedColor.active : "border-slate-200"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-medium text-slate-500 sm:text-sm">{title}</p>
 
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${colorClasses[color].icon}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selectedColor.icon}`}
         >
           <Icon size={18} />
         </div>

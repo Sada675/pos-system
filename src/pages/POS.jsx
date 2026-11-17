@@ -59,12 +59,28 @@ const escapeHTML = (value) =>
   });
 
 // ==================================================
-// INVOICE NUMBER GENERATOR
-// FORMAT: DDMMYY + DAILY SEQUENCE
-// EXAMPLE: 13112601
+// PHONE NORMALIZATION
+// Must match CustomersContext normalization
 // ==================================================
 
-const getInvoiceDatePrefix = (dateValue) => {
+const normalizePakistanPhone = (phone) => {
+  let value = String(phone || "").replace(/\D/g, "");
+
+  if (value.startsWith("0092")) {
+    value = `0${value.slice(4)}`;
+  } else if (value.startsWith("92")) {
+    value = `0${value.slice(2)}`;
+  }
+
+  return value;
+};
+
+// ==================================================
+// INVOICE NUMBER GENERATOR
+// FORMAT: INV-YYYY-0001
+// ==================================================
+
+const getInvoiceYear = (dateValue) => {
   if (!dateValue) {
     throw new Error("Invoice date is required.");
   }
@@ -87,16 +103,20 @@ const getInvoiceDatePrefix = (dateValue) => {
     throw new Error("Invalid calendar date.");
   }
 
-  return `${day}${month}${year.slice(-2)}`;
+  return year;
 };
 
 const generateInvoiceNumber = (existingSales, saleDate) => {
-  const prefix = getInvoiceDatePrefix(saleDate);
+  const year = getInvoiceYear(saleDate);
+
+  const invoicePrefix = `INV-${year}-`;
+
+  const invoicePattern = new RegExp(`^INV-${year}-(\\d{4,})$`, "i");
 
   const existingNumbers = (existingSales || [])
-    .map((sale) => String(sale.invoiceNumber || ""))
-    .filter((number) => new RegExp(`^${prefix}\\d{2,}$`).test(number))
-    .map((number) => Number(number.slice(prefix.length)))
+    .map((sale) => String(sale.invoiceNumber || "").trim())
+    .filter((number) => invoicePattern.test(number))
+    .map((number) => Number(number.slice(invoicePrefix.length)))
     .filter((sequence) => Number.isSafeInteger(sequence) && sequence > 0);
 
   const highestSequence =
@@ -108,11 +128,11 @@ const generateInvoiceNumber = (existingSales, saleDate) => {
     throw new Error("Invoice sequence limit reached.");
   }
 
-  return `${prefix}${String(nextSequence).padStart(2, "0")}`;
+  return `${invoicePrefix}${String(nextSequence).padStart(4, "0")}`;
 };
 
 // ==================================================
-// CUSTOMER NAME VALIDATION
+// CUSTOMER VALIDATION
 // ==================================================
 
 const validateCustomerName = (name) => {
@@ -130,11 +150,10 @@ const validateCustomerName = (name) => {
     return "Customer name cannot exceed 60 characters.";
   }
 
-  // English and Urdu letters supported.
   const validNamePattern = /^[\p{L}][\p{L}\p{M} .'-]*$/u;
 
   if (!validNamePattern.test(value)) {
-    return "Please enter a valid customer name. Numbers and special characters are not allowed.";
+    return "Please enter a valid customer name.";
   }
 
   const letterCount = [...value].filter((char) => /\p{L}/u.test(char)).length;
@@ -147,25 +166,7 @@ const validateCustomerName = (name) => {
 };
 
 // ==================================================
-// PAKISTAN PHONE NORMALIZATION
-// ==================================================
-
-const normalizePakistanPhone = (phone) => {
-  let value = String(phone || "").replace(/[\s()-]/g, "");
-
-  if (value.startsWith("+92")) {
-    value = "0" + value.slice(3);
-  } else if (value.startsWith("0092")) {
-    value = "0" + value.slice(4);
-  } else if (value.startsWith("92")) {
-    value = "0" + value.slice(2);
-  }
-
-  return value;
-};
-
-// ==================================================
-// PAKISTAN MOBILE VALIDATION
+// PHONE VALIDATION
 // ==================================================
 
 const validatePakistanPhone = (phone) => {
@@ -175,8 +176,12 @@ const validatePakistanPhone = (phone) => {
 
   const normalized = normalizePakistanPhone(phone);
 
-  if (!/^03[0-9]{9}$/.test(normalized)) {
-    return "Enter a valid Pakistani mobile number (03XXXXXXXXX).";
+  const isMobile = /^03[0-9]{9}$/.test(normalized);
+
+  const isLandline = /^0[1-9][0-9]{8,9}$/.test(normalized);
+
+  if (!isMobile && !isLandline) {
+    return "Enter a valid Pakistani mobile or landline number.";
   }
 
   return null;
@@ -187,9 +192,13 @@ const validatePakistanPhone = (phone) => {
 // ==================================================
 
 function POS() {
+  // ==================================================
+  // CONTEXTS
+  // ==================================================
+
   const { products, setProducts } = useProducts();
 
-  const { sales, addSale, updateSale } = useSales();
+  const { sales, addSale, updateSale, getSaleById } = useSales();
 
   const { customers, addOrUpdateCustomer, updateCustomerAfterSale } =
     useCustomers();
@@ -222,9 +231,11 @@ function POS() {
   // ==================================================
 
   const [search, setSearch] = useState("");
+
   const [activeCategory, setActiveCategory] = useState("All");
 
   const [currentPage, setCurrentPage] = useState(1);
+
   const [itemsPerPage, setItemsPerPage] = useState(6);
 
   const filteredProducts = useMemo(() => {
@@ -291,8 +302,71 @@ function POS() {
   // ==================================================
 
   const [customerName, setCustomerName] = useState("");
+
   const [customerPhone, setCustomerPhone] = useState("");
+
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+
+  const [showPhoneSuggestions, setShowPhoneSuggestions] = useState(false);
+
   const [saleDate, setSaleDate] = useState(getToday());
+
+  // Name suggestions
+  const nameSuggestions = useMemo(() => {
+    const query = customerName.trim().toLowerCase();
+
+    if (!query) return [];
+
+    return (customers || [])
+      .filter((customer) =>
+        String(customer.name || "")
+          .toLowerCase()
+          .includes(query),
+      )
+      .slice(0, 6);
+  }, [customers, customerName]);
+
+  // Phone suggestions
+  const phoneSuggestions = useMemo(() => {
+    const query = normalizePakistanPhone(customerPhone);
+
+    if (!query) return [];
+
+    return (customers || [])
+      .filter((customer) => {
+        const phone = normalizePakistanPhone(customer.phone);
+
+        return phone && phone.includes(query);
+      })
+      .slice(0, 6);
+  }, [customers, customerPhone]);
+
+  // Select existing customer
+  const selectCustomer = (customer) => {
+    setCustomerName(customer.name || "");
+
+    setCustomerPhone(customer.phone || "");
+
+    setShowNameSuggestions(false);
+
+    setShowPhoneSuggestions(false);
+  };
+
+  const handleNameChange = (value) => {
+    setCustomerName(value);
+
+    setShowNameSuggestions(Boolean(value.trim()));
+
+    setShowPhoneSuggestions(false);
+  };
+
+  const handlePhoneChange = (value) => {
+    setCustomerPhone(value);
+
+    setShowPhoneSuggestions(Boolean(normalizePakistanPhone(value)));
+
+    setShowNameSuggestions(false);
+  };
 
   // ==================================================
   // CART
@@ -305,7 +379,9 @@ function POS() {
   // ==================================================
 
   const [discount, setDiscount] = useState("0");
+
   const [paidAmount, setPaidAmount] = useState("");
+
   const [paymentMethod, setPaymentMethod] = useState("Cash");
 
   // ==================================================
@@ -313,6 +389,7 @@ function POS() {
   // ==================================================
 
   const [completedSale, setCompletedSale] = useState(null);
+
   const [wasInvoiceUpdated, setWasInvoiceUpdated] = useState(false);
 
   const [editingSale, setEditingSale] = useState(null);
@@ -345,7 +422,7 @@ function POS() {
 
   const paid = Math.min(receivedAmount, grandTotal);
 
-  const balance = Math.max(grandTotal - receivedAmount, 0);
+  const balance = Math.max(grandTotal - paid, 0);
 
   const changeReturned = Math.max(receivedAmount - grandTotal, 0);
 
@@ -361,6 +438,8 @@ function POS() {
   // ==================================================
 
   const addToCart = (product) => {
+    if (isProcessing) return;
+
     if (product.stock <= 0) {
       alert("This product is out of stock.");
       return;
@@ -522,6 +601,8 @@ function POS() {
   // ==================================================
 
   const removeFromCart = (id) => {
+    if (isProcessing) return;
+
     setCart((previousCart) => previousCart.filter((item) => item.id !== id));
   };
 
@@ -535,22 +616,31 @@ function POS() {
     setCart([]);
 
     setDiscount("0");
+
     setPaidAmount("");
 
     setCustomerName("");
+
     setCustomerPhone("");
+
+    setShowNameSuggestions(false);
+
+    setShowPhoneSuggestions(false);
 
     setSaleDate(getToday());
 
     setPaymentMethod("Cash");
 
     setSearch("");
+
     setActiveCategory("All");
 
     setCurrentPage(1);
 
     setCompletedSale(null);
+
     setWasInvoiceUpdated(false);
+
     setEditingSale(null);
   };
 
@@ -558,75 +648,8 @@ function POS() {
   // EDIT EXISTING INVOICE
   // ==================================================
 
-  const handleAddMoreItems = () => {
-    if (!completedSale) return;
-
-    const sale = completedSale;
-
-    const restoredCart = sale.items.map((item) => {
-      const latestProduct = posProducts.find(
-        (product) => product.id === item.id,
-      );
-
-      return {
-        ...item,
-        price: Number(item.price) || 0,
-        quantity: Number(item.quantity) || 0,
-        stock: latestProduct?.stock || 0,
-        minStock: latestProduct?.minStock || 0,
-        initialQuantity: Number(item.quantity) || 0,
-      };
-    });
-
-    setCart(restoredCart);
-
-    setCustomerName(sale.customerName || "");
-    setCustomerPhone(sale.customerPhone || "");
-
-    setSaleDate(sale.saleDate || getToday());
-
-    setDiscount(String(sale.discount || 0));
-
-    setPaidAmount(String(sale.amountReceived ?? sale.paid ?? 0));
-
-    setPaymentMethod(sale.paymentMethod || "Cash");
-
-    setEditingSale(sale);
-
-    setCompletedSale(null);
-
-    setSearch("");
-    setActiveCategory("All");
-    setCurrentPage(1);
-
-    requestAnimationFrame(() => {
-      productsSectionRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    });
-  };
-
   const handleCloseInvoice = () => {
     setCompletedSale(null);
-  };
-
-  // ==================================================
-  // CUSTOMER AUTOFILL
-  // ==================================================
-
-  const handlePhoneChange = (value) => {
-    setCustomerPhone(value);
-
-    const normalizedPhone = normalizePakistanPhone(value);
-
-    const existingCustomer = customers?.find(
-      (customer) => normalizePakistanPhone(customer.phone) === normalizedPhone,
-    );
-
-    if (existingCustomer) {
-      setCustomerName(existingCustomer.name || "");
-    }
   };
 
   // ==================================================
@@ -636,8 +659,7 @@ function POS() {
   const handleCheckout = () => {
     if (isProcessing) return;
 
-    // CUSTOMER NAME VALIDATION
-
+    // CUSTOMER NAME
     const nameError = validateCustomerName(customerName);
 
     if (nameError) {
@@ -645,8 +667,7 @@ function POS() {
       return;
     }
 
-    // CUSTOMER PHONE VALIDATION
-
+    // CUSTOMER PHONE
     const phoneError = validatePakistanPhone(customerPhone);
 
     if (phoneError) {
@@ -654,22 +675,17 @@ function POS() {
       return;
     }
 
-    // DATE VALIDATION
-
-    if (!saleDate) {
-      alert("Please select sale date and time.");
-      return;
-    }
+    // CURRENT CHECKOUT DATE
+    const checkoutDate = editingSale ? editingSale.saleDate : getToday();
 
     try {
-      getInvoiceDatePrefix(saleDate);
+      getInvoiceYear(checkoutDate);
     } catch (error) {
       alert(error.message);
       return;
     }
 
     // CART VALIDATION
-
     if (cart.length === 0) {
       alert("Please add products to the cart first.");
       return;
@@ -686,7 +702,6 @@ function POS() {
     }
 
     // DISCOUNT VALIDATION
-
     if (
       !Number.isFinite(Number(discount)) ||
       discountInput < 0 ||
@@ -697,7 +712,6 @@ function POS() {
     }
 
     // PRICE VALIDATION
-
     if (
       cart.some(
         (item) =>
@@ -708,8 +722,16 @@ function POS() {
       return;
     }
 
-    // STOCK VALIDATION
+    // AMOUNT VALIDATION
+    if (
+      !Number.isFinite(Number(paidAmount || 0)) ||
+      Number(paidAmount || 0) < 0
+    ) {
+      alert("Please enter a valid received amount.");
+      return;
+    }
 
+    // STOCK VALIDATION
     for (const item of cart) {
       const latestProduct = products.find((product) => product.id === item.id);
 
@@ -738,22 +760,23 @@ function POS() {
     setIsProcessing(true);
 
     try {
+      // ==================================================
       // INVOICE NUMBER
-
-      // Existing invoice keeps its original number.
-      // New invoice gets a date-based sequential number.
+      // ==================================================
 
       const invoiceNumber = editingSale
         ? editingSale.invoiceNumber
-        : generateInvoiceNumber(sales, saleDate);
+        : generateInvoiceNumber(sales, checkoutDate);
 
-      // NORMALIZED CUSTOMER PHONE
+      // ==================================================
+      // NORMALIZED PHONE
+      // ==================================================
 
-      const normalizedPhone = customerPhone.trim()
-        ? normalizePakistanPhone(customerPhone)
-        : "";
+      const normalizedPhone = normalizePakistanPhone(customerPhone);
 
+      // ==================================================
       // SALE OBJECT
+      // ==================================================
 
       const sale = {
         id: editingSale?.id || Date.now(),
@@ -764,7 +787,7 @@ function POS() {
 
         customerPhone: normalizedPhone,
 
-        saleDate,
+        saleDate: checkoutDate,
 
         items: cart.map((item) => ({
           id: item.id,
@@ -803,12 +826,18 @@ function POS() {
       };
 
       // ==================================================
-      // SAVE NEW SALE
+      // NEW SALE
       // ==================================================
 
       if (!editingSale) {
-        const savedSale = addSale(sale) || sale;
+        const savedSale = addSale(sale);
 
+        if (!savedSale) {
+          throw new Error("Unable to save sale.");
+        }
+
+        // Add purchase to existing customer
+        // OR create a new customer.
         addOrUpdateCustomer(savedSale);
 
         setWasInvoiceUpdated(false);
@@ -819,15 +848,28 @@ function POS() {
         // UPDATE EXISTING SALE
         // ==================================================
 
-        const oldSale = editingSale;
+        // Always get the latest old invoice before updating.
+        const oldSale = getSaleById(editingSale.id) || editingSale;
 
-        updateSale(oldSale.id, sale);
+        if (!oldSale) {
+          throw new Error("Original invoice could not be found.");
+        }
 
-        updateCustomerAfterSale(oldSale, sale);
+        // Update sale and receive updated sale object.
+        const savedSale = updateSale(oldSale.id, sale);
+
+        if (!savedSale) {
+          throw new Error("Unable to update invoice.");
+        }
+
+        // IMPORTANT:
+        // Update old and new customer records.
+        // Passing sales lets CustomersContext recalculate lastPurchase.
+        updateCustomerAfterSale(oldSale, savedSale, sales);
 
         setWasInvoiceUpdated(true);
 
-        setCompletedSale(sale);
+        setCompletedSale(savedSale);
       }
 
       // ==================================================
@@ -1094,6 +1136,7 @@ function POS() {
     `;
 
     printWindow.document.write(invoiceHTML);
+
     printWindow.document.close();
   };
 
@@ -1148,6 +1191,8 @@ function POS() {
         </div>
 
         <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          {/* CUSTOMER NAME */}
+
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
               Customer Name *
@@ -1163,12 +1208,57 @@ function POS() {
                 type="text"
                 value={customerName}
                 maxLength={60}
-                onChange={(e) => setCustomerName(e.target.value)}
-                placeholder="Enter customer name"
+                autoComplete="off"
+                disabled={isProcessing}
+                onChange={(e) => handleNameChange(e.target.value)}
+                onFocus={() =>
+                  customerName.trim() && setShowNameSuggestions(true)
+                }
+                onBlur={() =>
+                  setTimeout(() => setShowNameSuggestions(false), 150)
+                }
+                placeholder="Search or enter customer name"
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
               />
+
+              {showNameSuggestions && customerName.trim() && (
+                <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                  {nameSuggestions.length ? (
+                    nameSuggestions.map((customer) => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => selectCustomer(customer)}
+                        className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-blue-50"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold text-slate-800">
+                            {customer.name}
+                          </span>
+
+                          <span className="block text-xs text-slate-500">
+                            {customer.phone || "No phone number"}
+                          </span>
+                        </span>
+
+                        <span className="shrink-0 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-600">
+                          Select
+                        </span>
+                      </button>
+                    ))
+                  ) : (
+                    <p className="px-3 py-3 text-xs text-slate-500">
+                      No existing customer found. New customer will be saved
+                      with this sale.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* CUSTOMER PHONE */}
 
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
@@ -1184,20 +1274,66 @@ function POS() {
               <input
                 type="tel"
                 value={customerPhone}
+                autoComplete="off"
+                disabled={isProcessing}
                 onChange={(e) => handlePhoneChange(e.target.value)}
-                placeholder="03XX XXXXXXX"
+                onFocus={() =>
+                  customerPhone.trim() && setShowPhoneSuggestions(true)
+                }
+                onBlur={() =>
+                  setTimeout(() => setShowPhoneSuggestions(false), 150)
+                }
+                placeholder="Search by phone number"
                 className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-3 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
               />
+
+              {showPhoneSuggestions &&
+                normalizePakistanPhone(customerPhone) && (
+                  <div className="absolute left-0 right-0 top-full z-30 mt-2 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                    {phoneSuggestions.length ? (
+                      phoneSuggestions.map((customer) => (
+                        <button
+                          key={customer.id}
+                          type="button"
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => selectCustomer(customer)}
+                          className="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2.5 text-left transition hover:bg-blue-50"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold text-slate-800">
+                              {customer.name}
+                            </span>
+
+                            <span className="block text-xs text-slate-500">
+                              {customer.phone || "No phone number"}
+                            </span>
+                          </span>
+
+                          <span className="shrink-0 rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-600">
+                            Select
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="px-3 py-3 text-xs text-slate-500">
+                        No existing customer found. New customer will be saved
+                        with this sale.
+                      </p>
+                    )}
+                  </div>
+                )}
             </div>
 
             <p className="mt-1 text-[11px] text-slate-400">
-              Pakistani mobile number (optional).
+              Pakistani mobile or landline number (optional).
             </p>
           </div>
 
+          {/* SALE DATE */}
+
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">
-              Sale Date & Time *
+              Sale Date & Time (Automatic)
             </label>
 
             <div className="relative">
@@ -1209,8 +1345,8 @@ function POS() {
               <input
                 type="datetime-local"
                 value={saleDate}
-                onChange={(e) => setSaleDate(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-2 text-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                readOnly
+                className="w-full rounded-xl border border-slate-200 py-3 pl-10 pr-2 text-sm outline-none"
               />
             </div>
           </div>
@@ -1322,7 +1458,7 @@ function POS() {
                   }`}
                 >
                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                    {/* DETAILS */}
+                    {/* PRODUCT DETAILS */}
 
                     <div className="flex min-w-0 flex-1 items-center gap-3">
                       <div
@@ -1415,7 +1551,9 @@ function POS() {
 
                       <button
                         onClick={() => addToCart(product)}
-                        disabled={isOutOfStock || isCartLimitReached}
+                        disabled={
+                          isOutOfStock || isCartLimitReached || isProcessing
+                        }
                         className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:bg-slate-300 sm:w-full ${
                           isInCart
                             ? "bg-amber-500 hover:bg-amber-600"
@@ -2113,8 +2251,6 @@ function POS() {
                     Print Invoice
                   </button>
                 </div>
-
-                {/* EDIT INVOICE */}
               </div>
             </motion.div>
           </div>
