@@ -7,7 +7,9 @@ import Products from "./pages/Products";
 import Categories from "./pages/Categories";
 import Purchases from "./pages/Purchases";
 import Inventory from "./pages/Inventory";
-import Customers from "./pages/Customers";
+
+import Customers from "./components/customers/Customers";
+
 import Suppliers from "./pages/Suppliers";
 import Expenses from "./pages/Expenses";
 import Reports from "./pages/Reports";
