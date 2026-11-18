@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProducts } from "../context/ProductsContext";
 
@@ -17,6 +17,7 @@ import {
   PackageX,
   CircleDollarSign,
   SlidersHorizontal,
+  RotateCcw,
 } from "lucide-react";
 
 // ===================================
@@ -57,9 +58,14 @@ const getStockStatus = (product) => {
 function Products() {
   const { products = [], setProducts, categories = [] } = useProducts();
 
+  const productsListRef = useRef(null);
+
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [stockFilter, setStockFilter] = useState("All");
+
+  // Active statistics card
+  const [activeStatCard, setActiveStatCard] = useState("total");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -90,6 +96,13 @@ function Products() {
       (Number(product.stock) || 0) * (Number(product.purchasePrice) || 0),
     0,
   );
+
+  // ===================================
+  // ACTIVE FILTER CHECK
+  // ===================================
+
+  const hasActiveFilters =
+    search.trim() !== "" || categoryFilter !== "All" || stockFilter !== "All";
 
   // ===================================
   // SEARCH AND FILTER
@@ -152,12 +165,28 @@ function Products() {
   }, [categories, categoryFilter]);
 
   // ===================================
+  // SCROLL TO PRODUCTS
+  // ===================================
+
+  const scrollToProducts = () => {
+    setTimeout(() => {
+      productsListRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
+  };
+
+  // ===================================
   // FILTER HANDLERS
   // ===================================
 
-  const handleStatFilter = (filter) => {
+  const handleStatFilter = (filter, cardName) => {
     setStockFilter(filter);
     setCurrentPage(1);
+    setActiveStatCard(cardName);
+
+    scrollToProducts();
   };
 
   const resetFilters = () => {
@@ -165,6 +194,25 @@ function Products() {
     setCategoryFilter("All");
     setStockFilter("All");
     setCurrentPage(1);
+    setActiveStatCard("total");
+  };
+
+  // ===================================
+  // MANUAL STOCK FILTER
+  // ===================================
+
+  const handleStockFilterChange = (value) => {
+    setStockFilter(value);
+
+    if (value === "All") {
+      setActiveStatCard("total");
+    } else if (value === "Low Stock") {
+      setActiveStatCard("low");
+    } else if (value === "Out of Stock") {
+      setActiveStatCard("out");
+    } else {
+      setActiveStatCard(null);
+    }
   };
 
   // ===================================
@@ -248,7 +296,6 @@ function Products() {
 
     const finalUnit = isCustomUnit ? form.customUnit.trim() : form.unit;
 
-    // Required fields validation
     if (
       !form.name.trim() ||
       !form.size.trim() ||
@@ -268,7 +315,6 @@ function Products() {
       return;
     }
 
-    // Category validation
     const categoryExists = categories.some(
       (category) => category.name === form.category,
     );
@@ -278,7 +324,6 @@ function Products() {
       return;
     }
 
-    // Number validation
     if (
       !Number.isFinite(purchasePrice) ||
       !Number.isFinite(sellingPrice) ||
@@ -390,7 +435,7 @@ function Products() {
         </button>
       </div>
 
-      {/* STATISTICS */}
+      {/* STATISTICS CARDS */}
 
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <StatBox
@@ -399,8 +444,8 @@ function Products() {
           description="Registered products"
           icon={Package}
           color="blue"
-          active={stockFilter === "All"}
-          onClick={() => handleStatFilter("All")}
+          active={activeStatCard === "total"}
+          onClick={() => handleStatFilter("All", "total")}
         />
 
         <StatBox
@@ -409,7 +454,8 @@ function Products() {
           description="Purchase price value"
           icon={CircleDollarSign}
           color="emerald"
-          onClick={() => handleStatFilter("All")}
+          active={activeStatCard === "value"}
+          onClick={() => handleStatFilter("All", "value")}
         />
 
         <StatBox
@@ -418,8 +464,8 @@ function Products() {
           description="Need restocking"
           icon={AlertTriangle}
           color="orange"
-          active={stockFilter === "Low Stock"}
-          onClick={() => handleStatFilter("Low Stock")}
+          active={activeStatCard === "low"}
+          onClick={() => handleStatFilter("Low Stock", "low")}
         />
 
         <StatBox
@@ -428,8 +474,8 @@ function Products() {
           description="Currently unavailable"
           icon={PackageX}
           color="red"
-          active={stockFilter === "Out of Stock"}
-          onClick={() => handleStatFilter("Out of Stock")}
+          active={activeStatCard === "out"}
+          onClick={() => handleStatFilter("Out of Stock", "out")}
         />
       </div>
 
@@ -439,31 +485,19 @@ function Products() {
         {/* SECTION HEADER */}
 
         <div className="border-b border-slate-100 p-4 sm:p-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-800">
-                All Products
-              </h2>
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-slate-800">All Products</h2>
 
-              <p className="mt-1 text-xs text-slate-500">
-                {filteredProducts.length} products found
-              </p>
-            </div>
-
-            {(search || categoryFilter !== "All" || stockFilter !== "All") && (
-              <button
-                type="button"
-                onClick={resetFilters}
-                className="text-xs font-semibold text-red-500 hover:text-red-700"
-              >
-                Clear filters
-              </button>
-            )}
+            <p className="mt-1 text-xs text-slate-500">
+              {filteredProducts.length} products found
+            </p>
           </div>
 
           {/* SEARCH AND FILTERS */}
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.3fr_1fr_1fr_auto]">
+            {/* SEARCH */}
+
             <div className="relative">
               <Search
                 size={17}
@@ -479,6 +513,8 @@ function Products() {
               />
             </div>
 
+            {/* CATEGORY FILTER */}
+
             <div className="relative">
               <Filter
                 size={16}
@@ -488,7 +524,7 @@ function Products() {
               <select
                 value={categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-600 outline-none focus:border-blue-500"
+                className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-600 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-50"
               >
                 <option value="All">All Categories</option>
 
@@ -500,6 +536,8 @@ function Products() {
               </select>
             </div>
 
+            {/* STOCK FILTER */}
+
             <div className="relative">
               <SlidersHorizontal
                 size={16}
@@ -508,8 +546,8 @@ function Products() {
 
               <select
                 value={stockFilter}
-                onChange={(e) => setStockFilter(e.target.value)}
-                className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-600 outline-none focus:border-blue-500"
+                onChange={(e) => handleStockFilterChange(e.target.value)}
+                className="w-full appearance-none rounded-lg border border-slate-200 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-600 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-50"
               >
                 <option value="All">All Stock Status</option>
                 <option value="In Stock">In Stock</option>
@@ -517,12 +555,86 @@ function Products() {
                 <option value="Out of Stock">Out of Stock</option>
               </select>
             </div>
+
+            {/* CLEAR FILTERS BUTTON */}
+
+            <AnimatePresence>
+              {hasActiveFilters && (
+                <motion.button
+                  type="button"
+                  onClick={resetFilters}
+                  initial={{ opacity: 0, scale: 0.9, x: 8 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, x: 8 }}
+                  transition={{ duration: 0.18 }}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:border-red-300 hover:bg-red-100"
+                >
+                  <RotateCcw size={15} />
+                  <span>Clear Filters</span>
+                </motion.button>
+              )}
+            </AnimatePresence>
           </div>
+
+          {/* ACTIVE FILTER INDICATORS */}
+
+          {hasActiveFilters && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-semibold text-slate-400">
+                Active filters:
+              </span>
+
+              {search.trim() && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700">
+                  Search: {search}
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="ml-1 rounded-full hover:text-blue-900"
+                    aria-label="Clear search"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+
+              {categoryFilter !== "All" && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-purple-50 px-2.5 py-1 text-[11px] font-semibold text-purple-700">
+                  Category: {categoryFilter}
+                  <button
+                    type="button"
+                    onClick={() => setCategoryFilter("All")}
+                    className="ml-1 rounded-full hover:text-purple-900"
+                    aria-label="Clear category filter"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+
+              {stockFilter !== "All" && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
+                  Stock: {stockFilter}
+                  <button
+                    type="button"
+                    onClick={() => handleStockFilterChange("All")}
+                    className="ml-1 rounded-full hover:text-emerald-900"
+                    aria-label="Clear stock filter"
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* PRODUCT LIST */}
 
-        <div className="bg-slate-50/60 p-3 sm:p-4">
+        <div
+          ref={productsListRef}
+          className="scroll-mt-6 bg-slate-50/60 p-3 sm:p-4"
+        >
           {currentProducts.length > 0 ? (
             <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
               <div className="min-w-[900px]">
@@ -582,8 +694,9 @@ function Products() {
                 <button
                   type="button"
                   onClick={resetFilters}
-                  className="mt-4 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg bg-red-50 px-4 py-2 text-sm font-semibold text-red-600 transition hover:bg-red-100"
                 >
+                  <RotateCcw size={15} />
                   Clear Filters
                 </button>
               )}
@@ -635,8 +748,6 @@ function Products() {
             {/* RIGHT SIDE */}
 
             <div className="flex flex-wrap items-center gap-1.5">
-              {/* PREVIOUS */}
-
               <button
                 type="button"
                 onClick={handlePrevious}
@@ -646,8 +757,6 @@ function Products() {
                 <ChevronLeft size={15} />
                 <span>Previous</span>
               </button>
-
-              {/* PAGE NUMBERS */}
 
               <div className="flex items-center gap-1">
                 {Array.from(
@@ -668,8 +777,6 @@ function Products() {
                   </button>
                 ))}
               </div>
-
-              {/* NEXT */}
 
               <button
                 type="button"
@@ -940,7 +1047,6 @@ function ProductCard({ product, status, onEdit, onDelete }) {
   const minStock = Number(product.minStock) || 0;
 
   const purchasePrice = Number(product.purchasePrice) || 0;
-
   const sellingPrice = Number(product.sellingPrice) || 0;
 
   const profit = sellingPrice - purchasePrice;
@@ -1071,23 +1177,31 @@ function StatBox({
 }) {
   const colorClasses = {
     blue: {
-      icon: "bg-blue-50 text-blue-600",
-      active: "border-blue-300 ring-2 ring-blue-50",
+      icon: "bg-blue-100 text-blue-700",
+      active:
+        "border-blue-400 bg-blue-50 ring-2 ring-blue-200 shadow-md shadow-blue-100",
+      text: "text-blue-700",
     },
 
     emerald: {
-      icon: "bg-emerald-50 text-emerald-600",
-      active: "border-emerald-300 ring-2 ring-emerald-50",
+      icon: "bg-emerald-100 text-emerald-700",
+      active:
+        "border-emerald-400 bg-emerald-50 ring-2 ring-emerald-200 shadow-md shadow-emerald-100",
+      text: "text-emerald-700",
     },
 
     orange: {
-      icon: "bg-orange-50 text-orange-600",
-      active: "border-orange-300 ring-2 ring-orange-50",
+      icon: "bg-orange-100 text-orange-700",
+      active:
+        "border-orange-400 bg-orange-50 ring-2 ring-orange-200 shadow-md shadow-orange-100",
+      text: "text-orange-700",
     },
 
     red: {
-      icon: "bg-red-50 text-red-600",
-      active: "border-red-300 ring-2 ring-red-50",
+      icon: "bg-red-100 text-red-700",
+      active:
+        "border-red-400 bg-red-50 ring-2 ring-red-200 shadow-md shadow-red-100",
+      text: "text-red-700",
     },
   };
 
@@ -1097,26 +1211,62 @@ function StatBox({
     <motion.button
       type="button"
       onClick={onClick}
-      whileTap={{ scale: 0.98 }}
-      className={`w-full rounded-xl border bg-white p-4 text-left transition hover:border-slate-300 ${
-        active ? selectedColor.active : "border-slate-200"
+      whileTap={{ scale: 0.97 }}
+      className={`relative w-full rounded-xl border p-4 text-left transition-all duration-200 ${
+        active
+          ? `${selectedColor.active} scale-[1.02]`
+          : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md"
       }`}
     >
+      {/* ACTIVE INDICATOR */}
+
+      {active && (
+        <span
+          className={`absolute right-3 top-3 h-2.5 w-2.5 rounded-full ${
+            color === "blue"
+              ? "bg-blue-600"
+              : color === "emerald"
+                ? "bg-emerald-600"
+                : color === "orange"
+                  ? "bg-orange-600"
+                  : "bg-red-600"
+          }`}
+        />
+      )}
+
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-slate-500 sm:text-sm">{title}</p>
+        <p
+          className={`text-xs font-medium sm:text-sm ${
+            active ? selectedColor.text : "text-slate-500"
+          }`}
+        >
+          {title}
+        </p>
 
         <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${selectedColor.icon}`}
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+            selectedColor.icon
+          }`}
         >
           <Icon size={18} />
         </div>
       </div>
 
-      <h3 className="mt-3 break-words text-xl font-bold text-slate-800 sm:text-2xl">
+      <h3
+        className={`mt-3 break-words text-xl font-bold sm:text-2xl ${
+          active ? selectedColor.text : "text-slate-800"
+        }`}
+      >
         {value}
       </h3>
 
-      <p className="mt-1 text-[11px] text-slate-400">{description}</p>
+      <p
+        className={`mt-1 text-[11px] ${
+          active ? selectedColor.text : "text-slate-400"
+        }`}
+      >
+        {description}
+      </p>
     </motion.button>
   );
 }

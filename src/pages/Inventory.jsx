@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { useProducts } from "../context/ProductsContext";
@@ -23,170 +23,220 @@ import {
   ArrowDownRight,
   RotateCcw,
   Settings2,
+  Filter,
+  CalendarDays,
+  Activity,
 } from "lucide-react";
 
 const HISTORY_KEY = "steel-store-stock-history";
 
+const DEFAULT_MIN_STOCK = 5;
+
+const STOCK_REASONS = [
+  { value: "Physical Count", label: "Physical Stock Count" },
+  { value: "Damaged Goods", label: "Damaged Goods" },
+  { value: "Lost Goods", label: "Missing / Lost Goods" },
+  { value: "Data Correction", label: "Previous Entry Correction" },
+  { value: "Other", label: "Other Reason" },
+];
+
+const toNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
+const getStock = (product) => Math.max(0, toNumber(product?.stock));
+
+const getMinimumStock = (product) => {
+  const minimum = Number(product?.minStock);
+
+  return Number.isFinite(minimum) && minimum >= 0 ? minimum : DEFAULT_MIN_STOCK;
+};
+
+const getProductId = (product) => product?.id ?? product?._id;
+
+const getProductUnit = (product) => product?.unit || "pcs";
+
+const formatCurrency = (amount) => {
+  return `Rs. ${toNumber(amount).toLocaleString("en-PK", {
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+const formatQuantity = (quantity) => {
+  return toNumber(quantity).toLocaleString("en-PK", {
+    maximumFractionDigits: 2,
+  });
+};
+
+const formatDate = (date) => {
+  if (!date) return "Date unavailable";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return "Invalid date";
+  }
+
+  return parsedDate.toLocaleString("en-PK", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+};
+
+const getValidDate = (date) => {
+  const parsed = new Date(date || 0);
+
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime();
+};
+
+const getProductStatus = (product) => {
+  const stock = getStock(product);
+  const minimum = getMinimumStock(product);
+
+  if (stock <= 0) {
+    return {
+      label: "Out of Stock",
+      color: "border-red-100 bg-red-50 text-red-700",
+      icon: XCircle,
+    };
+  }
+
+  if (product.availabilityStatus === "unavailable") {
+    return {
+      label: "Unavailable",
+      color: "border-slate-200 bg-slate-100 text-slate-700",
+      icon: Ban,
+    };
+  }
+
+  if (stock <= minimum) {
+    return {
+      label: "Low Stock",
+      color: "border-orange-100 bg-orange-50 text-orange-700",
+      icon: AlertTriangle,
+    };
+  }
+
+  return {
+    label: "In Stock",
+    color: "border-emerald-100 bg-emerald-50 text-emerald-700",
+    icon: CheckCircle2,
+  };
+};
+
+const readHistory = () => {
+  try {
+    const saved = localStorage.getItem(HISTORY_KEY);
+
+    if (!saved) return [];
+
+    const parsed = JSON.parse(saved);
+
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const Inventory = () => {
-  // Shared application data
   const { products = [], setProducts, categories = [] } = useProducts();
 
   const { sales = [] } = useSales();
 
-  // Filters
+  const inventoryTableRef = useRef(null);
+
+  // FILTERS
+
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
   const [stockFilter, setStockFilter] = useState("All");
 
-  // Modals
+  // MODALS
+
   const [showStockModal, setShowStockModal] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
 
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  // Stock reconciliation
+  // STOCK RECONCILIATION
+
   const [actualStock, setActualStock] = useState("");
   const [stockReason, setStockReason] = useState("Physical Count");
   const [stockNote, setStockNote] = useState("");
 
-  // Availability
+  // PRODUCT AVAILABILITY
+
   const [availability, setAvailability] = useState("available");
   const [statusNote, setStatusNote] = useState("");
 
-  // Inventory history
-  const [history, setHistory] = useState(() => {
-    try {
-      const saved = localStorage.getItem(HISTORY_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  // INVENTORY HISTORY
 
-  // Pagination
+  const [history, setHistory] = useState(readHistory);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+    } catch (error) {
+      console.error("Unable to save inventory history:", error);
+    }
+  }, [history]);
+
+  // PAGINATION
+
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(8);
 
-  // Persist inventory history
-  useEffect(() => {
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
-  }, [history]);
+  // STOCK DIFFERENCE
 
-  // Currency formatter
-  const formatCurrency = (amount) => {
-    return `Rs. ${Number(amount || 0).toLocaleString("en-PK", {
-      maximumFractionDigits: 2,
-    })}`;
-  };
+  const stockDifference = useMemo(() => {
+    if (!selectedProduct || actualStock === "") return 0;
 
-  // Date formatter
-  const formatDate = (date) => {
-    if (!date) return "Date unavailable";
+    const enteredStock = Number(actualStock);
 
-    const parsedDate = new Date(date);
+    if (!Number.isFinite(enteredStock)) return 0;
 
-    if (Number.isNaN(parsedDate.getTime())) {
-      return "Invalid date";
-    }
+    return enteredStock - getStock(selectedProduct);
+  }, [actualStock, selectedProduct]);
 
-    return parsedDate.toLocaleString("en-PK", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-  };
+  const isValidActualStock =
+    actualStock !== "" &&
+    Number.isFinite(Number(actualStock)) &&
+    Number(actualStock) >= 0;
 
-  // Get product stock status
-  const getProductStatus = (product) => {
-    const stock = Number(product.stock || 0);
-    const minimum = Number(product.minStock ?? 5);
+  // INVENTORY STATISTICS
 
-    if (stock <= 0) {
-      return {
-        label: "Out of Stock",
-        color: "bg-red-50 text-red-600 border-red-100",
-        icon: XCircle,
-      };
-    }
-
-    if (product.availabilityStatus === "unavailable") {
-      return {
-        label: "Unavailable",
-        color: "bg-slate-100 text-slate-600 border-slate-200",
-        icon: Ban,
-      };
-    }
-
-    if (stock <= minimum) {
-      return {
-        label: "Low Stock",
-        color: "bg-orange-50 text-orange-600 border-orange-100",
-        icon: AlertTriangle,
-      };
-    }
-
-    return {
-      label: "In Stock",
-      color: "bg-emerald-50 text-emerald-600 border-emerald-100",
-      icon: CheckCircle2,
-    };
-  };
-
-  // Real inventory statistics
   const stats = useMemo(() => {
     const totalProducts = products.length;
 
-    const totalStock = products.reduce(
-      (sum, product) => sum + Number(product.stock || 0),
-      0,
-    );
-
-    const stockValue = products.reduce(
-      (sum, product) =>
-        sum + Number(product.stock || 0) * Number(product.purchasePrice || 0),
-      0,
-    );
+    const inStock = products.filter((product) => {
+      return getProductStatus(product).label === "In Stock";
+    }).length;
 
     const lowStock = products.filter((product) => {
-      const stock = Number(product.stock || 0);
-
-      return (
-        stock > 0 &&
-        stock <= Number(product.minStock ?? 5) &&
-        product.availabilityStatus !== "unavailable"
-      );
+      return getProductStatus(product).label === "Low Stock";
     }).length;
 
-    const outOfStock = products.filter(
-      (product) => Number(product.stock || 0) <= 0,
-    ).length;
-
-    const unavailable = products.filter(
-      (product) =>
-        Number(product.stock || 0) > 0 &&
-        product.availabilityStatus === "unavailable",
-    ).length;
-
-    const inStock = products.filter((product) => {
-      const stock = Number(product.stock || 0);
-
-      return (
-        stock > Number(product.minStock ?? 5) &&
-        product.availabilityStatus !== "unavailable"
-      );
+    const outOfStock = products.filter((product) => {
+      return getStock(product) <= 0;
     }).length;
+
+    const stockValue = products.reduce((total, product) => {
+      return total + getStock(product) * toNumber(product.purchasePrice);
+    }, 0);
 
     return {
       totalProducts,
-      totalStock,
-      stockValue,
+      inStock,
       lowStock,
       outOfStock,
-      unavailable,
-      inStock,
+      stockValue,
+      stockAlerts: lowStock + outOfStock,
     };
   }, [products]);
 
-  // Merge inventory activities and completed POS sales
+  // INVENTORY ACTIVITY
+
   const activityHistory = useMemo(() => {
     const inventoryActivities = history.map((item) => ({
       ...item,
@@ -194,87 +244,67 @@ const Inventory = () => {
     }));
 
     const salesActivities = sales.flatMap((sale) => {
-      const items = sale.items || [];
+      const items = Array.isArray(sale.items) ? sale.items : [];
 
-      return items.map((item, index) => ({
-        id: `sale-${sale.id}-${item.id || item.productId}-${index}`,
+      return items
+        .filter((item) => toNumber(item.quantity) > 0)
+        .map((item, index) => {
+          const productId = item.productId ?? item.id ?? null;
 
-        productId: item.id || item.productId,
-
-        productName: item.name || item.productName || "Unknown Product",
-
-        type: "sale",
-
-        quantity: Number(item.quantity || 0),
-
-        difference: -Number(item.quantity || 0),
-
-        unit: item.unit || "pcs",
-
-        invoiceNumber: sale.invoiceNumber || sale.id || "N/A",
-
-        customerName: sale.customerName || "Walk-in Customer",
-
-        date: sale.saleDate || sale.createdAt || sale.date,
-
-        source: "sales",
-      }));
+          return {
+            id: `sale-${sale.id ?? sale.invoiceNumber}-${productId ?? index}-${index}`,
+            productId,
+            productName: item.name || item.productName || "Unknown Product",
+            type: "sale",
+            quantity: toNumber(item.quantity),
+            difference: -Math.abs(toNumber(item.quantity)),
+            unit: item.unit || "pcs",
+            invoiceNumber: sale.invoiceNumber || sale.id || "N/A",
+            customerName: sale.customerName || "Walk-in Customer",
+            date: sale.saleDate || sale.createdAt || sale.date || null,
+            source: "sales",
+          };
+        });
     });
 
     return [...inventoryActivities, ...salesActivities].sort(
-      (a, b) => new Date(b.date || 0) - new Date(a.date || 0),
+      (a, b) => getValidDate(b.date) - getValidDate(a.date),
     );
   }, [history, sales]);
 
-  // Filter products
+  const recentActivities = activityHistory.slice(0, 10);
+
+  // PRODUCT FILTERING
+
   const filteredProducts = useMemo(() => {
+    const searchValue = search.toLowerCase().trim();
+
     return products.filter((product) => {
-      const searchValue = search.toLowerCase().trim();
+      const productName = String(product.name || "").toLowerCase();
+      const productSize = String(product.size || "").toLowerCase();
+      const productCategory = String(product.category || "").toLowerCase();
+      const productUnit = String(product.unit || "").toLowerCase();
 
       const matchesSearch =
-        product.name?.toLowerCase().includes(searchValue) ||
-        product.size?.toLowerCase().includes(searchValue) ||
-        product.category?.toLowerCase().includes(searchValue);
+        !searchValue ||
+        productName.includes(searchValue) ||
+        productSize.includes(searchValue) ||
+        productCategory.includes(searchValue) ||
+        productUnit.includes(searchValue);
 
       const matchesCategory =
         categoryFilter === "All" || product.category === categoryFilter;
 
-      const stock = Number(product.stock || 0);
-      const minimum = Number(product.minStock ?? 5);
+      const status = getProductStatus(product).label;
 
-      let matchesStatus = true;
-
-      switch (stockFilter) {
-        case "In Stock":
-          matchesStatus =
-            stock > minimum && product.availabilityStatus !== "unavailable";
-          break;
-
-        case "Low Stock":
-          matchesStatus =
-            stock > 0 &&
-            stock <= minimum &&
-            product.availabilityStatus !== "unavailable";
-          break;
-
-        case "Out of Stock":
-          matchesStatus = stock <= 0;
-          break;
-
-        case "Unavailable":
-          matchesStatus =
-            stock > 0 && product.availabilityStatus === "unavailable";
-          break;
-
-        default:
-          matchesStatus = true;
-      }
+      const matchesStatus = stockFilter === "All" || status === stockFilter;
 
       return matchesSearch && matchesCategory && matchesStatus;
     });
   }, [products, search, categoryFilter, stockFilter]);
 
-  // Pagination
+  // PAGINATION CALCULATIONS
+
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
 
   const startIndex = (currentPage - 1) * itemsPerPage;
@@ -288,12 +318,10 @@ const Inventory = () => {
     (_, index) => index + 1,
   );
 
-  // Reset pagination when filters change
   useEffect(() => {
     setCurrentPage(1);
   }, [search, categoryFilter, stockFilter, itemsPerPage]);
 
-  // Keep current page valid when filtered products change
   useEffect(() => {
     if (totalPages === 0) {
       setCurrentPage(1);
@@ -302,64 +330,69 @@ const Inventory = () => {
     }
   }, [currentPage, totalPages]);
 
-  // Open stock reconciliation modal
+  // SCROLL TO PRODUCT TABLE
+
+  const scrollToInventory = () => {
+    window.setTimeout(() => {
+      inventoryTableRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
+  };
+
+  // STOCK RECONCILIATION MODAL
+
   const openStockModal = (product) => {
     setSelectedProduct(product);
-
-    setActualStock(String(Number(product.stock || 0)));
-
+    setActualStock(String(getStock(product)));
     setStockReason("Physical Count");
-
     setStockNote("");
-
     setShowStockModal(true);
   };
 
-  // Calculate stock difference
-  const stockDifference = selectedProduct
-    ? Number(actualStock) - Number(selectedProduct.stock || 0)
-    : 0;
+  const closeStockModal = () => {
+    setShowStockModal(false);
+    setSelectedProduct(null);
+    setActualStock("");
+    setStockNote("");
+  };
 
-  // Save physical stock correction
-  const handleStockUpdate = (e) => {
-    e.preventDefault();
+  // SAVE PHYSICAL STOCK CORRECTION
+
+  const handleStockUpdate = (event) => {
+    event.preventDefault();
 
     if (!selectedProduct) return;
 
-    if (
-      actualStock === "" ||
-      !Number.isFinite(Number(actualStock)) ||
-      Number(actualStock) < 0
-    ) {
+    if (!isValidActualStock) {
       alert("Please enter a valid stock quantity.");
       return;
     }
 
-    const newStock = Number(actualStock);
+    const productId = getProductId(selectedProduct);
 
     const currentProduct = products.find(
-      (product) => product.id === selectedProduct.id,
+      (product) => getProductId(product) === productId,
     );
 
     if (!currentProduct) {
-      alert("Product not found.");
+      alert("Product not found. Please refresh the page.");
       return;
     }
 
-    const previousStock = Number(currentProduct.stock || 0);
-
+    const previousStock = getStock(currentProduct);
+    const newStock = Number(actualStock);
     const difference = newStock - previousStock;
 
     if (difference === 0) {
-      setShowStockModal(false);
-      setSelectedProduct(null);
+      closeStockModal();
       return;
     }
 
-    // Update shared ProductsContext
-    setProducts((previous) =>
-      previous.map((product) =>
-        product.id === selectedProduct.id
+    setProducts((previousProducts) =>
+      previousProducts.map((product) =>
+        getProductId(product) === productId
           ? {
               ...product,
               stock: newStock,
@@ -368,65 +401,59 @@ const Inventory = () => {
       ),
     );
 
-    // Record activity
     const activity = {
       id: `reconciliation-${Date.now()}`,
-
-      productId: selectedProduct.id,
-
-      productName: selectedProduct.name,
-
+      productId,
+      productName: currentProduct.name,
       type: "reconciliation",
-
       previousStock,
-
       newStock,
-
       difference,
-
       reason: stockReason,
-
       note: stockNote.trim(),
-
-      unit: currentProduct.unit || "pcs",
-
+      unit: getProductUnit(currentProduct),
       date: new Date().toISOString(),
     };
 
     setHistory((previous) => [activity, ...previous]);
 
-    setShowStockModal(false);
-
-    setSelectedProduct(null);
+    closeStockModal();
   };
 
-  // Open availability modal
+  // AVAILABILITY MODAL
+
   const openStatusModal = (product) => {
     setSelectedProduct(product);
-
     setAvailability(product.availabilityStatus || "available");
-
     setStatusNote("");
-
     setShowStatusModal(true);
   };
 
-  // Save availability
-  const handleStatusUpdate = (e) => {
-    e.preventDefault();
+  const closeStatusModal = () => {
+    setShowStatusModal(false);
+    setSelectedProduct(null);
+    setStatusNote("");
+  };
+
+  // SAVE PRODUCT AVAILABILITY
+
+  const handleStatusUpdate = (event) => {
+    event.preventDefault();
 
     if (!selectedProduct) return;
 
+    const productId = getProductId(selectedProduct);
+
     const currentProduct = products.find(
-      (product) => product.id === selectedProduct.id,
+      (product) => getProductId(product) === productId,
     );
 
     if (!currentProduct) {
-      alert("Product not found.");
+      alert("Product not found. Please refresh the page.");
       return;
     }
 
-    if (Number(currentProduct.stock || 0) <= 0) {
+    if (getStock(currentProduct) <= 0) {
       alert(
         "This product has zero stock. Add stock before changing its availability.",
       );
@@ -436,15 +463,13 @@ const Inventory = () => {
     const previousStatus = currentProduct.availabilityStatus || "available";
 
     if (previousStatus === availability) {
-      setShowStatusModal(false);
-      setSelectedProduct(null);
+      closeStatusModal();
       return;
     }
 
-    // Update shared ProductsContext
-    setProducts((previous) =>
-      previous.map((product) =>
-        product.id === selectedProduct.id
+    setProducts((previousProducts) =>
+      previousProducts.map((product) =>
+        getProductId(product) === productId
           ? {
               ...product,
               availabilityStatus: availability,
@@ -453,33 +478,24 @@ const Inventory = () => {
       ),
     );
 
-    // Record activity
     const activity = {
       id: `availability-${Date.now()}`,
-
-      productId: selectedProduct.id,
-
-      productName: selectedProduct.name,
-
+      productId,
+      productName: currentProduct.name,
       type: "availability",
-
       previousStatus,
-
       newStatus: availability,
-
       note: statusNote.trim(),
-
       date: new Date().toISOString(),
     };
 
     setHistory((previous) => [activity, ...previous]);
 
-    setShowStatusModal(false);
-
-    setSelectedProduct(null);
+    closeStatusModal();
   };
 
-  // Reset filters
+  // RESET FILTERS
+
   const resetFilters = () => {
     setSearch("");
     setCategoryFilter("All");
@@ -487,20 +503,75 @@ const Inventory = () => {
     setCurrentPage(1);
   };
 
-  // Close modals
-  const closeStockModal = () => {
-    setShowStockModal(false);
-    setSelectedProduct(null);
+  const hasActiveFilters =
+    search.trim() !== "" || categoryFilter !== "All" || stockFilter !== "All";
+
+  // ACTIVITY DISPLAY HELPERS
+
+  const getActivityDetails = (item) => {
+    if (item.type === "sale") {
+      return {
+        title: "Product Sold",
+        description: `POS Sale · Invoice: ${item.invoiceNumber}`,
+        color: "bg-red-50 text-red-600",
+        icon: ArrowDownRight,
+      };
+    }
+
+    if (item.type === "reconciliation") {
+      const increased = toNumber(item.difference) > 0;
+
+      return {
+        title: "Stock Corrected",
+        description: item.reason || "Physical stock correction",
+        color: increased
+          ? "bg-emerald-50 text-emerald-600"
+          : "bg-orange-50 text-orange-600",
+        icon: increased ? ArrowUpRight : ArrowDownRight,
+      };
+    }
+
+    if (item.type === "availability") {
+      return {
+        title: "Availability Updated",
+        description: `${item.previousStatus || "available"} → ${item.newStatus || "available"}`,
+        color: "bg-blue-50 text-blue-600",
+        icon: Settings2,
+      };
+    }
+
+    if (item.type === "add") {
+      return {
+        title: "Stock Added",
+        description: "Stock added to inventory",
+        color: "bg-emerald-50 text-emerald-600",
+        icon: ArrowUpRight,
+      };
+    }
+
+    if (item.type === "remove") {
+      return {
+        title: "Stock Removed",
+        description: "Stock removed from inventory",
+        color: "bg-red-50 text-red-600",
+        icon: ArrowDownRight,
+      };
+    }
+
+    return {
+      title: "Inventory Updated",
+      description: item.note || "Inventory record updated",
+      color: "bg-slate-100 text-slate-600",
+      icon: Activity,
+    };
   };
 
-  const closeStatusModal = () => {
-    setShowStatusModal(false);
-    setSelectedProduct(null);
-  };
+  // PAGE UI
 
   return (
     <div className="min-h-screen space-y-7 bg-[#f8fafc] p-4 md:p-7">
       {/* PAGE HEADER */}
+
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-600">
@@ -513,13 +584,15 @@ const Inventory = () => {
           </h1>
 
           <p className="mt-2 text-sm text-slate-500">
-            Monitor product quantities, availability and stock activity.
+            Monitor product stock, availability, inventory value and stock
+            activity.
           </p>
         </div>
 
         <button
+          type="button"
           onClick={resetFilters}
-          className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+          className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
         >
           <RotateCcw size={17} />
           Reset Filters
@@ -527,104 +600,71 @@ const Inventory = () => {
       </div>
 
       {/* STATISTICS */}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Total Products"
-          value={stats.totalProducts}
+          value={stats.totalProducts.toLocaleString()}
           subtitle="Registered products"
           icon={Package}
           color="blue"
         />
 
         <StatCard
-          title="Total Quantity"
-          value={stats.totalStock.toLocaleString()}
-          subtitle="Combined stock units"
+          title="In-Stock Products"
+          value={stats.inStock.toLocaleString()}
+          subtitle="Products currently available"
           icon={Boxes}
-          color="purple"
+          color="emerald"
         />
 
         <StatCard
           title="Inventory Value"
           value={formatCurrency(stats.stockValue)}
-          subtitle="Calculated at purchase cost"
+          subtitle="Based on purchase prices"
           icon={TrendingUp}
-          color="emerald"
+          color="purple"
         />
 
         <StatCard
           title="Stock Alerts"
-          value={stats.lowStock + stats.outOfStock}
+          value={stats.stockAlerts.toLocaleString()}
           subtitle={`${stats.lowStock} low stock · ${stats.outOfStock} out of stock`}
           icon={AlertTriangle}
           color="orange"
         />
       </div>
 
-      {/* STOCK ALERTS */}
-      {(stats.lowStock > 0 ||
-        stats.outOfStock > 0 ||
-        stats.unavailable > 0) && (
-        <div className="rounded-2xl border border-orange-100 bg-orange-50 p-5">
-          <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-600">
-              <AlertTriangle size={21} />
-            </div>
-
-            <div>
-              <h3 className="font-bold text-slate-800">
-                Inventory Needs Attention
-              </h3>
-
-              <p className="mt-1 text-sm text-slate-600">
-                {stats.lowStock} products have low stock, {stats.outOfStock} are
-                out of stock and {stats.unavailable} are marked unavailable.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* STOCK SUMMARY */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        <SummaryCard
-          title="In Stock"
-          count={stats.inStock}
-          color="emerald"
-          onClick={() => setStockFilter("In Stock")}
-        />
-
-        <SummaryCard
-          title="Low Stock"
-          count={stats.lowStock}
-          color="orange"
-          onClick={() => setStockFilter("Low Stock")}
-        />
-
-        <SummaryCard
-          title="Out of Stock"
-          count={stats.outOfStock}
-          color="red"
-          onClick={() => setStockFilter("Out of Stock")}
-        />
-      </div>
-
       {/* PRODUCT INVENTORY */}
-      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+
+      <div
+        ref={inventoryTableRef}
+        className="scroll-mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+      >
         {/* TABLE HEADER */}
+
         <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center">
           <div>
-            <h2 className="text-lg font-bold text-slate-800">
-              Product Inventory
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-bold text-slate-800">
+                Product Inventory
+              </h2>
+
+              {stockFilter !== "All" && (
+                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-600">
+                  {stockFilter}
+                </span>
+              )}
+            </div>
 
             <p className="mt-1 text-sm text-slate-500">
-              Check current stock and manage product availability.
+              {filteredProducts.length} matching products found.
             </p>
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
             {/* SEARCH */}
+
             <div className="relative">
               <Search
                 size={17}
@@ -634,17 +674,18 @@ const Inventory = () => {
               <input
                 type="text"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search product..."
                 className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-52"
               />
             </div>
 
-            {/* CATEGORY */}
+            {/* CATEGORY FILTER */}
+
             <select
               value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              onChange={(event) => setCategoryFilter(event.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="All">All Categories</option>
 
@@ -658,11 +699,12 @@ const Inventory = () => {
               ))}
             </select>
 
-            {/* STATUS */}
+            {/* STOCK STATUS FILTER */}
+
             <select
               value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+              onChange={(event) => setStockFilter(event.target.value)}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             >
               <option value="All">All Status</option>
               <option value="In Stock">In Stock</option>
@@ -673,7 +715,50 @@ const Inventory = () => {
           </div>
         </div>
 
+        {/* ACTIVE FILTERS */}
+
+        {hasActiveFilters && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/70 px-5 py-3">
+            <Filter size={15} className="text-slate-400" />
+
+            <span className="text-xs font-semibold text-slate-500">
+              Active Filters:
+            </span>
+
+            {search.trim() && (
+              <FilterBadge
+                label={`Search: ${search}`}
+                onRemove={() => setSearch("")}
+              />
+            )}
+
+            {categoryFilter !== "All" && (
+              <FilterBadge
+                label={`Category: ${categoryFilter}`}
+                onRemove={() => setCategoryFilter("All")}
+              />
+            )}
+
+            {stockFilter !== "All" && (
+              <FilterBadge
+                label={`Status: ${stockFilter}`}
+                onRemove={() => setStockFilter("All")}
+              />
+            )}
+
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            >
+              <RotateCcw size={16} />
+              Clear All
+            </button>
+          </div>
+        )}
+
         {/* TABLE */}
+
         <div className="overflow-x-auto">
           <table className="w-full min-w-[950px] text-left">
             <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
@@ -696,13 +781,14 @@ const Inventory = () => {
 
                   return (
                     <motion.tr
-                      key={product.id}
+                      key={getProductId(product) ?? product.name}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: index * 0.025 }}
                       className="transition hover:bg-slate-50"
                     >
                       {/* PRODUCT */}
+
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-3">
                           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -711,7 +797,7 @@ const Inventory = () => {
 
                           <div>
                             <p className="font-semibold text-slate-800">
-                              {product.name}
+                              {product.name || "Unnamed Product"}
                             </p>
 
                             <p className="mt-1 text-xs text-slate-400">
@@ -722,32 +808,38 @@ const Inventory = () => {
                       </td>
 
                       {/* CATEGORY */}
+
                       <td className="px-5 py-4 text-sm text-slate-600">
                         {product.category || "Uncategorized"}
                       </td>
 
                       {/* PURCHASE PRICE */}
+
                       <td className="px-5 py-4 text-sm font-medium text-slate-700">
                         {formatCurrency(product.purchasePrice)}
                       </td>
 
                       {/* AVAILABLE QUANTITY */}
+
                       <td className="px-5 py-4">
                         <p className="font-bold text-slate-800">
-                          {Number(product.stock || 0).toLocaleString()}
+                          {formatQuantity(product.stock)}
                         </p>
 
                         <p className="mt-1 text-xs text-slate-400">
-                          {product.unit || "pcs"}
+                          {getProductUnit(product)}
                         </p>
                       </td>
 
-                      {/* MINIMUM LEVEL */}
+                      {/* MINIMUM STOCK */}
+
                       <td className="px-5 py-4 text-sm text-slate-600">
-                        {product.minStock ?? 5} {product.unit || "pcs"}
+                        {formatQuantity(getMinimumStock(product))}{" "}
+                        {getProductUnit(product)}
                       </td>
 
                       {/* STATUS */}
+
                       <td className="px-5 py-4">
                         <span
                           className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold ${status.color}`}
@@ -758,9 +850,11 @@ const Inventory = () => {
                       </td>
 
                       {/* ACTIONS */}
+
                       <td className="px-5 py-4">
                         <div className="flex items-center justify-center gap-2">
                           <button
+                            type="button"
                             onClick={() => openStockModal(product)}
                             title="Reconcile Physical Stock"
                             className="flex items-center gap-1.5 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-600 transition hover:bg-blue-100"
@@ -770,6 +864,7 @@ const Inventory = () => {
                           </button>
 
                           <button
+                            type="button"
                             onClick={() => openStatusModal(product)}
                             title="Manage Availability"
                             className="rounded-lg border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
@@ -796,6 +891,16 @@ const Inventory = () => {
                     <p className="mt-1 text-sm text-slate-400">
                       Try changing your search or filters.
                     </p>
+
+                    {hasActiveFilters && (
+                      <button
+                        type="button"
+                        onClick={resetFilters}
+                        className="mt-4 rounded-lg bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-600 transition hover:bg-blue-100"
+                      >
+                        Clear Filters
+                      </button>
+                    )}
                   </td>
                 </tr>
               )}
@@ -804,11 +909,9 @@ const Inventory = () => {
         </div>
 
         {/* PAGINATION */}
-        {/* PAGINATION */}
+
         <div className="flex flex-col justify-between gap-4 border-t border-slate-100 p-4 lg:flex-row lg:items-center">
-          {/* LEFT SIDE: ROWS PER PAGE + SHOWING RECORDS */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            {/* ROWS PER PAGE */}
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-xs font-medium text-slate-500">
                 Rows per page
@@ -816,7 +919,9 @@ const Inventory = () => {
 
               <select
                 value={itemsPerPage}
-                onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                onChange={(event) =>
+                  setItemsPerPage(Number(event.target.value))
+                }
                 className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
               >
                 {[6, 8, 12, 24, 48].map((size) => (
@@ -827,7 +932,6 @@ const Inventory = () => {
               </select>
             </div>
 
-            {/* SHOWING RECORDS */}
             <p className="text-xs font-medium text-slate-500">
               Showing{" "}
               <span className="font-bold text-slate-700">
@@ -841,10 +945,11 @@ const Inventory = () => {
             </p>
           </div>
 
-          {/* RIGHT SIDE: PAGE NAVIGATION */}
+          {/* PAGE NAVIGATION */}
+
           <div className="flex flex-wrap items-center gap-1.5">
-            {/* PREVIOUS */}
             <button
+              type="button"
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
               disabled={currentPage === 1 || totalPages === 0}
               className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
@@ -853,9 +958,9 @@ const Inventory = () => {
               <ChevronLeft size={17} />
             </button>
 
-            {/* PAGE NUMBERS */}
             {pageNumbers.map((page) => (
               <button
+                type="button"
                 key={page}
                 onClick={() => setCurrentPage(page)}
                 className={`flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition ${
@@ -868,8 +973,8 @@ const Inventory = () => {
               </button>
             ))}
 
-            {/* NEXT */}
             <button
+              type="button"
               onClick={() =>
                 setCurrentPage((page) => Math.min(totalPages, page + 1))
               }
@@ -883,9 +988,12 @@ const Inventory = () => {
         </div>
       </div>
 
-      {/* RECENT ACTIVITY */}
+      {/* RECENT INVENTORY ACTIVITY */}
+
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between border-b border-slate-100 p-5">
+        {/* ACTIVITY HEADER */}
+
+        <div className="flex flex-col justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
               <History size={20} />
@@ -897,122 +1005,118 @@ const Inventory = () => {
               </h2>
 
               <p className="mt-1 text-sm text-slate-500">
-                Record of stock, POS sales and availability changes.
+                POS sales, stock corrections and availability updates.
               </p>
             </div>
           </div>
 
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-            {activityHistory.length} Activities
+          <span className="w-fit rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+            {activityHistory.length} Total Activities
           </span>
         </div>
 
-        <div className="divide-y divide-slate-100">
-          {activityHistory.length > 0 ? (
-            activityHistory.slice(0, 7).map((item) => {
-              const isIncrease =
-                item.type === "reconciliation"
-                  ? Number(item.difference) > 0
-                  : item.type === "add";
+        {/* ACTIVITY LIST */}
 
-              const isSale = item.type === "sale";
+        <div className="divide-y divide-slate-100">
+          {recentActivities.length > 0 ? (
+            recentActivities.map((item) => {
+              const activity = getActivityDetails(item);
+              const ActivityIcon = activity.icon;
 
               const isStockActivity =
+                item.type === "sale" ||
                 item.type === "reconciliation" ||
                 item.type === "add" ||
-                item.type === "remove" ||
-                isSale;
+                item.type === "remove";
+
+              const difference =
+                item.type === "sale"
+                  ? -Math.abs(toNumber(item.quantity))
+                  : toNumber(item.difference);
 
               return (
                 <div
                   key={item.id}
-                  className="flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center"
+                  className="flex flex-col justify-between gap-3 p-4 transition hover:bg-slate-50/70 sm:flex-row sm:items-center"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex min-w-0 items-start gap-3">
                     <div
-                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                        !isStockActivity
-                          ? "bg-blue-50 text-blue-600"
-                          : isIncrease
-                            ? "bg-emerald-50 text-emerald-600"
-                            : "bg-red-50 text-red-600"
-                      }`}
+                      className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${activity.color}`}
                     >
-                      {!isStockActivity ? (
-                        <Settings2 size={19} />
-                      ) : isIncrease ? (
-                        <ArrowUpRight size={19} />
-                      ) : (
-                        <ArrowDownRight size={19} />
-                      )}
+                      <ActivityIcon size={19} />
                     </div>
 
-                    <div>
+                    <div className="min-w-0">
                       <p className="font-semibold text-slate-800">
-                        {item.productName}
+                        {item.productName || "Unknown Product"}
+                      </p>
+
+                      <p className="mt-1 text-xs font-semibold text-slate-600">
+                        {activity.title}
                       </p>
 
                       <p className="mt-1 text-xs text-slate-400">
+                        <CalendarDays size={12} className="mr-1 inline" />
                         {formatDate(item.date)}
                       </p>
 
-                      {isSale && (
-                        <>
-                          <p className="mt-1 text-xs font-medium text-blue-600">
-                            POS Sale · Invoice: {item.invoiceNumber}
-                          </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {activity.description}
+                      </p>
 
-                          <p className="mt-1 text-xs text-slate-500">
-                            Customer: {item.customerName}
-                          </p>
-                        </>
-                      )}
-
-                      {item.reason && (
+                      {item.type === "sale" && (
                         <p className="mt-1 text-xs text-slate-500">
-                          Reason: {item.reason}
+                          Customer: {item.customerName}
                         </p>
                       )}
 
                       {item.note && (
-                        <p className="mt-1 text-xs text-slate-500">
+                        <p className="mt-1 break-words text-xs text-slate-500">
                           Note: {item.note}
                         </p>
                       )}
 
-                      {item.type === "availability" && (
-                        <p className="mt-1 text-xs text-blue-600">
-                          {item.previousStatus} → {item.newStatus}
+                      {item.type === "reconciliation" && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Previous: {formatQuantity(item.previousStock)}{" "}
+                          {item.unit || "pcs"} · New:{" "}
+                          {formatQuantity(item.newStock)} {item.unit || "pcs"}
                         </p>
                       )}
                     </div>
                   </div>
 
-                  <div className="pl-12 sm:pl-0">
+                  {/* ACTIVITY QUANTITY */}
+
+                  <div className="shrink-0 pl-13 text-left sm:pl-0 sm:text-right">
                     {isStockActivity ? (
-                      <div className="text-right">
+                      <>
                         <p
-                          className={`font-bold ${
-                            isIncrease ? "text-emerald-600" : "text-red-600"
+                          className={`text-sm font-bold ${
+                            difference > 0
+                              ? "text-emerald-600"
+                              : difference < 0
+                                ? "text-red-600"
+                                : "text-slate-600"
                           }`}
                         >
-                          {isIncrease ? "+" : "-"}
-                          {Math.abs(
-                            Number(item.difference ?? item.quantity ?? 0),
-                          ).toLocaleString()}
-
-                          {item.unit ? ` ${item.unit}` : ""}
+                          {difference > 0 ? "+" : ""}
+                          {formatQuantity(difference)} {item.unit || "pcs"}
                         </p>
 
-                        {item.type !== "sale" && (
-                          <p className="mt-1 text-xs text-slate-400">
-                            {item.previousStock} → {item.newStock}
-                          </p>
-                        )}
-                      </div>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {item.type === "sale"
+                            ? "Sold"
+                            : difference > 0
+                              ? "Stock Increased"
+                              : difference < 0
+                                ? "Stock Decreased"
+                                : "No Change"}
+                        </p>
+                      </>
                     ) : (
-                      <span className="text-xs font-semibold text-blue-600">
-                        Availability Updated
+                      <span className="rounded-full bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600">
+                        Status Change
                       </span>
                     )}
                   </div>
@@ -1034,11 +1138,12 @@ const Inventory = () => {
       </div>
 
       {/* STOCK RECONCILIATION MODAL */}
+
       <AnimatePresence>
         {showStockModal && selectedProduct && (
           <Modal onClose={closeStockModal}>
             <div className="border-b border-slate-100 p-5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-blue-600">
                     <ClipboardList size={17} />
@@ -1055,8 +1160,9 @@ const Inventory = () => {
                 </div>
 
                 <button
+                  type="button"
                   onClick={closeStockModal}
-                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                 >
                   <X size={20} />
                 </button>
@@ -1064,9 +1170,10 @@ const Inventory = () => {
             </div>
 
             <form onSubmit={handleStockUpdate} className="space-y-5 p-5">
-              {/* PRODUCT */}
+              {/* SELECTED PRODUCT */}
+
               <div className="rounded-xl border border-slate-100 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Selected Product
                 </p>
 
@@ -1074,18 +1181,20 @@ const Inventory = () => {
                   {selectedProduct.name}
                 </h3>
 
-                <div className="mt-3 flex justify-between">
+                <div className="mt-3 flex items-center justify-between gap-3">
                   <span className="text-sm text-slate-500">
                     Current system quantity
                   </span>
 
                   <span className="font-bold text-slate-800">
-                    {selectedProduct.stock || 0} {selectedProduct.unit || "pcs"}
+                    {formatQuantity(selectedProduct.stock)}{" "}
+                    {getProductUnit(selectedProduct)}
                   </span>
                 </div>
               </div>
 
               {/* ACTUAL STOCK */}
+
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Actual Physical Quantity
@@ -1097,7 +1206,7 @@ const Inventory = () => {
                   step="any"
                   required
                   value={actualStock}
-                  onChange={(e) => setActualStock(e.target.value)}
+                  onChange={(event) => setActualStock(event.target.value)}
                   placeholder="Enter actual stock quantity"
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-lg font-semibold outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
                 />
@@ -1107,9 +1216,10 @@ const Inventory = () => {
                 </p>
               </div>
 
-              {/* DIFFERENCE */}
+              {/* STOCK DIFFERENCE */}
+
               <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <span className="text-sm font-medium text-slate-600">
                     Stock Difference
                   </span>
@@ -1124,10 +1234,8 @@ const Inventory = () => {
                     }`}
                   >
                     {stockDifference > 0 ? "+" : ""}
-                    {Number.isFinite(stockDifference)
-                      ? stockDifference
-                      : 0}{" "}
-                    {selectedProduct.unit || "pcs"}
+                    {formatQuantity(stockDifference)}{" "}
+                    {getProductUnit(selectedProduct)}
                   </span>
                 </div>
 
@@ -1141,6 +1249,7 @@ const Inventory = () => {
               </div>
 
               {/* REASON */}
+
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Reason for Correction
@@ -1148,24 +1257,19 @@ const Inventory = () => {
 
                 <select
                   value={stockReason}
-                  onChange={(e) => setStockReason(e.target.value)}
+                  onChange={(event) => setStockReason(event.target.value)}
                   className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-blue-500"
                 >
-                  <option value="Physical Count">Physical Stock Count</option>
-
-                  <option value="Damaged Goods">Damaged Goods</option>
-
-                  <option value="Lost Goods">Missing / Lost Goods</option>
-
-                  <option value="Data Correction">
-                    Previous Entry Correction
-                  </option>
-
-                  <option value="Other">Other Reason</option>
+                  {STOCK_REASONS.map((reason) => (
+                    <option key={reason.value} value={reason.value}>
+                      {reason.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               {/* NOTE */}
+
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
                   Additional Note (Optional)
@@ -1174,7 +1278,7 @@ const Inventory = () => {
                 <textarea
                   rows="3"
                   value={stockNote}
-                  onChange={(e) => setStockNote(e.target.value)}
+                  onChange={(event) => setStockNote(event.target.value)}
                   placeholder="Write a short explanation..."
                   className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
                 />
@@ -1182,7 +1286,7 @@ const Inventory = () => {
 
               <button
                 type="submit"
-                disabled={stockDifference === 0}
+                disabled={!isValidActualStock || stockDifference === 0}
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 <Save size={18} />
@@ -1194,11 +1298,12 @@ const Inventory = () => {
       </AnimatePresence>
 
       {/* AVAILABILITY MODAL */}
+
       <AnimatePresence>
         {showStatusModal && selectedProduct && (
           <Modal onClose={closeStatusModal}>
             <div className="border-b border-slate-100 p-5">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-blue-600">
                     <Settings2 size={17} />
@@ -1208,11 +1313,16 @@ const Inventory = () => {
                   <h2 className="text-xl font-bold text-slate-800">
                     Manage Availability
                   </h2>
+
+                  <p className="mt-1 text-sm text-slate-500">
+                    Control whether this product can be sold.
+                  </p>
                 </div>
 
                 <button
+                  type="button"
                   onClick={closeStatusModal}
-                  className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
                 >
                   <X size={20} />
                 </button>
@@ -1220,9 +1330,10 @@ const Inventory = () => {
             </div>
 
             <form onSubmit={handleStatusUpdate} className="space-y-5 p-5">
-              {/* PRODUCT */}
+              {/* SELECTED PRODUCT */}
+
               <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase text-slate-400">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                   Selected Product
                 </p>
 
@@ -1232,13 +1343,15 @@ const Inventory = () => {
 
                 <p className="mt-1 text-sm text-slate-500">
                   Available Quantity:{" "}
-                  <strong>
-                    {selectedProduct.stock || 0} {selectedProduct.unit || "pcs"}
+                  <strong className="text-slate-700">
+                    {formatQuantity(selectedProduct.stock)}{" "}
+                    {getProductUnit(selectedProduct)}
                   </strong>
                 </p>
               </div>
 
-              {/* AVAILABILITY */}
+              {/* AVAILABILITY OPTIONS */}
+
               <div>
                 <label className="mb-3 block text-sm font-semibold text-slate-700">
                   Select Availability
@@ -1247,12 +1360,12 @@ const Inventory = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    disabled={Number(selectedProduct.stock || 0) <= 0}
+                    disabled={getStock(selectedProduct) <= 0}
                     onClick={() => setAvailability("available")}
                     className={`flex items-center justify-center gap-2 rounded-xl border p-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
                       availability === "available"
                         ? "border-emerald-500 bg-emerald-50 text-emerald-700"
-                        : "border-slate-200 text-slate-500"
+                        : "border-slate-200 text-slate-500 hover:bg-slate-50"
                     }`}
                   >
                     <CheckCircle2 size={18} />
@@ -1261,12 +1374,12 @@ const Inventory = () => {
 
                   <button
                     type="button"
-                    disabled={Number(selectedProduct.stock || 0) <= 0}
+                    disabled={getStock(selectedProduct) <= 0}
                     onClick={() => setAvailability("unavailable")}
                     className={`flex items-center justify-center gap-2 rounded-xl border p-4 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${
                       availability === "unavailable"
                         ? "border-red-500 bg-red-50 text-red-700"
-                        : "border-slate-200 text-slate-500"
+                        : "border-slate-200 text-slate-500 hover:bg-slate-50"
                     }`}
                   >
                     <Ban size={18} />
@@ -1274,7 +1387,7 @@ const Inventory = () => {
                   </button>
                 </div>
 
-                {Number(selectedProduct.stock || 0) <= 0 && (
+                {getStock(selectedProduct) <= 0 && (
                   <p className="mt-3 rounded-lg bg-red-50 p-3 text-xs text-red-600">
                     This product is out of stock. Receive new stock before
                     making it available.
@@ -1283,23 +1396,28 @@ const Inventory = () => {
               </div>
 
               {/* NOTE */}
+
               <div>
                 <label className="mb-2 block text-sm font-semibold text-slate-700">
-                  Reason (Optional)
+                  Reason / Note (Optional)
                 </label>
 
                 <textarea
                   rows="3"
                   value={statusNote}
-                  onChange={(e) => setStatusNote(e.target.value)}
-                  placeholder="Why is this product unavailable?"
+                  onChange={(event) => setStatusNote(event.target.value)}
+                  placeholder="Why are you changing product availability?"
                   className="w-full resize-none rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500"
                 />
               </div>
 
               <button
                 type="submit"
-                disabled={Number(selectedProduct.stock || 0) <= 0}
+                disabled={
+                  getStock(selectedProduct) <= 0 ||
+                  availability ===
+                    (selectedProduct.availabilityStatus || "available")
+                }
                 className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               >
                 <Save size={18} />
@@ -1314,27 +1432,44 @@ const Inventory = () => {
 };
 
 // STATISTICS CARD
+
 const StatCard = ({ title, value, subtitle, icon: Icon, color }) => {
   const styles = {
-    blue: "bg-blue-50 text-blue-600",
-    purple: "bg-purple-50 text-purple-600",
-    emerald: "bg-emerald-50 text-emerald-600",
-    orange: "bg-orange-50 text-orange-600",
+    blue: {
+      icon: "bg-blue-50 text-blue-600",
+      border: "border-blue-100",
+    },
+    emerald: {
+      icon: "bg-emerald-50 text-emerald-600",
+      border: "border-emerald-100",
+    },
+    purple: {
+      icon: "bg-violet-50 text-violet-600",
+      border: "border-violet-100",
+    },
+    orange: {
+      icon: "bg-orange-50 text-orange-600",
+      border: "border-orange-100",
+    },
   };
+
+  const style = styles[color] || styles.blue;
 
   return (
     <motion.div
       whileHover={{ y: -3 }}
-      className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition"
+      className={`rounded-2xl border bg-white p-5 shadow-sm transition ${style.border}`}
     >
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm font-medium text-slate-500">{title}</p>
 
-          <h3 className="mt-3 text-2xl font-bold text-slate-800">{value}</h3>
+          <h3 className="mt-3 break-words text-2xl font-bold text-slate-800">
+            {value}
+          </h3>
         </div>
 
-        <div className={`rounded-xl p-3 ${styles[color]}`}>
+        <div className={`shrink-0 rounded-xl p-3 ${style.icon}`}>
           <Icon size={22} />
         </div>
       </div>
@@ -1344,41 +1479,49 @@ const StatCard = ({ title, value, subtitle, icon: Icon, color }) => {
   );
 };
 
-// SUMMARY CARD
-const SummaryCard = ({ title, count, color, onClick }) => {
-  const styles = {
-    emerald: "border-emerald-100 bg-emerald-50 text-emerald-700",
+// ACTIVE FILTER BADGE
 
-    orange: "border-orange-100 bg-orange-50 text-orange-700",
-
-    red: "border-red-100 bg-red-50 text-red-700",
-  };
-
+const FilterBadge = ({ label, onRemove }) => {
   return (
-    <button
-      onClick={onClick}
-      className={`flex items-center justify-between rounded-2xl border p-5 text-left transition hover:-translate-y-1 hover:shadow-sm ${styles[color]}`}
-    >
-      <div>
-        <p className="text-sm font-semibold opacity-80">{title}</p>
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+      {label}
 
-        <h3 className="mt-2 text-2xl font-bold">{count}</h3>
-      </div>
-
-      <ArrowUpRight size={22} />
-    </button>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="rounded-full transition hover:text-red-600"
+        title="Remove filter"
+      >
+        <X size={13} />
+      </button>
+    </span>
   );
 };
 
 // REUSABLE MODAL
+
 const Modal = ({ children, onClose }) => {
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [onClose]);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
-      onClick={onClose}
+      onMouseDown={onClose}
     >
       <motion.div
         initial={{
@@ -1396,7 +1539,8 @@ const Modal = ({ children, onClose }) => {
           scale: 0.96,
           y: 15,
         }}
-        onClick={(e) => e.stopPropagation()}
+        transition={{ duration: 0.2 }}
+        onMouseDown={(event) => event.stopPropagation()}
         className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white shadow-2xl"
       >
         {children}

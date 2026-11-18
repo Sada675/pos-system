@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-
 import { useProducts } from "../context/ProductsContext";
 
 import {
@@ -16,9 +15,7 @@ import {
   CheckCircle2,
   Truck,
   ArrowUpRight,
-  ArrowDownRight,
   FileText,
-  CalendarDays,
   AlertCircle,
   ChevronLeft,
   ChevronRight,
@@ -26,23 +23,82 @@ import {
 
 const PURCHASES_KEY = "steel-store-purchases";
 const STOCK_HISTORY_KEY = "steel-store-stock-history";
+const SUPPLIER_ADVANCES_KEY = "steel-store-supplier-advances";
+
+// -----------------------------------
+// HELPERS
+// -----------------------------------
 
 const formatCurrency = (amount) =>
   `Rs. ${Number(amount || 0).toLocaleString("en-PK", {
     maximumFractionDigits: 2,
   })}`;
 
-const generateInvoiceNumber = () => {
-  return `PUR-${Date.now().toString().slice(-8)}`;
+const toNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 };
 
-const getInitialForm = () => ({
+const normalizeSupplier = (supplier) =>
+  String(supplier || "")
+    .trim()
+    .toLowerCase();
+
+const getPurchaseBalance = (purchase) => {
+  if (purchase.balance !== undefined && purchase.balance !== null) {
+    return Math.max(0, toNumber(purchase.balance));
+  }
+
+  return Math.max(0, toNumber(purchase.total) - toNumber(purchase.paid));
+};
+
+const getPaymentStatus = (total, paid) => {
+  if (paid <= 0) return "Unpaid";
+  if (paid >= total) return "Paid";
+  return "Partial";
+};
+
+const readLocalStorage = (key, fallback) => {
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+// -----------------------------------
+// INVOICE NUMBER
+// -----------------------------------
+
+const generateInvoiceNumber = (purchases = []) => {
+  const year = new Date().getFullYear();
+  const prefix = `INV-${year}-`;
+
+  const existingNumbers = purchases.map((purchase) => {
+    const invoice = String(purchase.invoice || "");
+
+    if (!invoice.startsWith(prefix)) return 0;
+
+    const sequence = Number(invoice.slice(prefix.length));
+    return Number.isFinite(sequence) ? sequence : 0;
+  });
+
+  const nextNumber = Math.max(0, ...existingNumbers) + 1;
+
+  return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+};
+
+// -----------------------------------
+// INITIAL FORM
+// -----------------------------------
+
+const getInitialForm = (invoice) => ({
   supplier: "",
-  invoice: generateInvoiceNumber(),
+  invoice: invoice || generateInvoiceNumber(),
   date: new Date().toISOString().split("T")[0],
   paid: "",
   notes: "",
-
   items: [
     {
       productName: "",
@@ -57,26 +113,31 @@ const getInitialForm = () => ({
   ],
 });
 
+// -----------------------------------
+// MAIN COMPONENT
+// -----------------------------------
+
 function Purchases() {
   const { products = [], setProducts, categories = [] } = useProducts();
 
-  // -----------------------------------
-  // PURCHASES FROM LOCAL STORAGE
-  // -----------------------------------
+  const [purchases, setPurchases] = useState(() =>
+    readLocalStorage(PURCHASES_KEY, []),
+  );
 
-  const [purchases, setPurchases] = useState(() => {
-    try {
-      const saved = localStorage.getItem(PURCHASES_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [supplierAdvances, setSupplierAdvances] = useState(() =>
+    readLocalStorage(SUPPLIER_ADVANCES_KEY, {}),
+  );
 
-  // Save purchase records
   useEffect(() => {
     localStorage.setItem(PURCHASES_KEY, JSON.stringify(purchases));
   }, [purchases]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      SUPPLIER_ADVANCES_KEY,
+      JSON.stringify(supplierAdvances),
+    );
+  }, [supplierAdvances]);
 
   // -----------------------------------
   // SEARCH AND FILTERS
@@ -85,49 +146,88 @@ function Purchases() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
 
-  // -----------------------------------
-  // PAGINATION
-  // -----------------------------------
-
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(8);
 
   // -----------------------------------
-  // MODAL STATES
+  // MODALS
   // -----------------------------------
 
   const [showModal, setShowModal] = useState(false);
   const [selectedPurchase, setSelectedPurchase] = useState(null);
 
-  // Purchase form
-  const [formData, setFormData] = useState(getInitialForm);
+  const [formData, setFormData] = useState(() =>
+    getInitialForm(generateInvoiceNumber(readLocalStorage(PURCHASES_KEY, []))),
+  );
 
   // -----------------------------------
-  // PURCHASE STATISTICS
+  // SUPPLIER ADVANCE
+  // -----------------------------------
+
+  const supplierKey = normalizeSupplier(formData.supplier);
+
+  const availableSupplierAdvance = supplierKey
+    ? Math.max(0, toNumber(supplierAdvances[supplierKey]?.balance))
+    : 0;
+
+  // -----------------------------------
+  // PURCHASE TOTAL
+  // -----------------------------------
+
+  const purchaseTotal = useMemo(
+    () =>
+      formData.items.reduce(
+        (sum, item) => sum + toNumber(item.quantity) * toNumber(item.rate),
+        0,
+      ),
+    [formData.items],
+  );
+
+  // -----------------------------------
+  // PAYMENT CALCULATIONS
+  // -----------------------------------
+
+  const cashPaid = Math.max(0, toNumber(formData.paid));
+
+  const advanceApplied = Math.min(purchaseTotal, availableSupplierAdvance);
+
+  const remainingAfterAdvance = Math.max(0, purchaseTotal - advanceApplied);
+
+  const cashApplied = Math.min(cashPaid, remainingAfterAdvance);
+
+  const newAdvance = Math.max(0, cashPaid - remainingAfterAdvance);
+
+  const totalSettled = advanceApplied + cashApplied;
+
+  const remainingAmount = Math.max(0, purchaseTotal - totalSettled);
+
+  const paymentStatus = getPaymentStatus(purchaseTotal, totalSettled);
+
+  const supplierAdvanceAfterPurchase =
+    availableSupplierAdvance - advanceApplied + newAdvance;
+
+  // -----------------------------------
+  // STATISTICS
   // -----------------------------------
 
   const stats = useMemo(() => {
-    const totalPurchases = purchases.length;
-
     const totalAmount = purchases.reduce(
-      (sum, purchase) => sum + Number(purchase.total || 0),
+      (sum, purchase) => sum + toNumber(purchase.total),
       0,
     );
 
     const totalPaid = purchases.reduce(
-      (sum, purchase) => sum + Number(purchase.paid || 0),
+      (sum, purchase) => sum + toNumber(purchase.paid),
       0,
     );
 
     const totalPending = purchases.reduce(
-      (sum, purchase) =>
-        sum +
-        Math.max(0, Number(purchase.total || 0) - Number(purchase.paid || 0)),
+      (sum, purchase) => sum + getPurchaseBalance(purchase),
       0,
     );
 
     return {
-      totalPurchases,
+      totalPurchases: purchases.length,
       totalAmount,
       totalPaid,
       totalPending,
@@ -158,8 +258,7 @@ function Purchases() {
       let matchesStatus = true;
 
       if (statusFilter === "Pending") {
-        matchesStatus =
-          Number(purchase.total || 0) - Number(purchase.paid || 0) > 0;
+        matchesStatus = getPurchaseBalance(purchase) > 0;
       } else if (statusFilter !== "All") {
         matchesStatus = purchase.status === statusFilter;
       }
@@ -168,8 +267,16 @@ function Purchases() {
     });
   }, [purchases, search, statusFilter]);
 
+  const hasActiveFilters = search.trim() !== "" || statusFilter !== "All";
+
+  const clearAllFilters = () => {
+    setSearch("");
+    setStatusFilter("All");
+    setCurrentPage(1);
+  };
+
   // -----------------------------------
-  // PAGINATION LOGIC
+  // PAGINATION
   // -----------------------------------
 
   const totalPages = Math.ceil(filteredPurchases.length / itemsPerPage);
@@ -188,12 +295,10 @@ function Purchases() {
     (_, index) => index + 1,
   );
 
-  // Reset pagination when search, filter or page size changes
   useEffect(() => {
     setCurrentPage(1);
   }, [search, statusFilter, itemsPerPage]);
 
-  // Prevent invalid page after records change
   useEffect(() => {
     if (totalPages === 0) {
       setCurrentPage(1);
@@ -203,29 +308,7 @@ function Purchases() {
   }, [currentPage, totalPages]);
 
   // -----------------------------------
-  // FORM TOTALS
-  // -----------------------------------
-
-  const purchaseTotal = useMemo(() => {
-    return formData.items.reduce(
-      (sum, item) => sum + Number(item.quantity || 0) * Number(item.rate || 0),
-      0,
-    );
-  }, [formData.items]);
-
-  const paidAmount = Number(formData.paid || 0);
-
-  const remainingAmount = Math.max(0, purchaseTotal - paidAmount);
-
-  const paymentStatus =
-    paidAmount <= 0
-      ? "Unpaid"
-      : paidAmount >= purchaseTotal
-        ? "Paid"
-        : "Partial";
-
-  // -----------------------------------
-  // GENERAL INPUT CHANGE
+  // INPUT HANDLERS
   // -----------------------------------
 
   const handleChange = (e) => {
@@ -237,10 +320,6 @@ function Purchases() {
     }));
   };
 
-  // -----------------------------------
-  // ITEM INPUT CHANGE
-  // -----------------------------------
-
   const handleItemChange = (index, field, value) => {
     setFormData((previous) => {
       const updatedItems = [...previous.items];
@@ -250,7 +329,6 @@ function Purchases() {
         [field]: value,
       };
 
-      // Automatically load existing product details
       if (field === "productName") {
         const existingProduct = products.find(
           (product) =>
@@ -260,17 +338,11 @@ function Purchases() {
         if (existingProduct) {
           updatedItems[index] = {
             ...updatedItems[index],
-
             productName: existingProduct.name,
-
             category: existingProduct.category || "",
-
             size: existingProduct.size || "",
-
             unit: existingProduct.unit || "KG",
-
             sellingPrice: existingProduct.sellingPrice || "",
-
             minStock: existingProduct.minStock ?? 5,
           };
         }
@@ -284,13 +356,12 @@ function Purchases() {
   };
 
   // -----------------------------------
-  // ADD ITEM
+  // ADD / REMOVE ITEMS
   // -----------------------------------
 
   const addItem = () => {
     setFormData((previous) => ({
       ...previous,
-
       items: [
         ...previous.items,
         {
@@ -307,14 +378,9 @@ function Purchases() {
     }));
   };
 
-  // -----------------------------------
-  // REMOVE ITEM
-  // -----------------------------------
-
   const removeItem = (index) => {
     setFormData((previous) => ({
       ...previous,
-
       items: previous.items.filter((_, itemIndex) => itemIndex !== index),
     }));
   };
@@ -324,7 +390,7 @@ function Purchases() {
   // -----------------------------------
 
   const openPurchaseModal = () => {
-    setFormData(getInitialForm());
+    setFormData(getInitialForm(generateInvoiceNumber(purchases)));
     setShowModal(true);
   };
 
@@ -336,13 +402,15 @@ function Purchases() {
     e.preventDefault();
 
     const supplier = formData.supplier.trim();
+    const invoice = formData.invoice.trim();
+    const normalizedSupplier = normalizeSupplier(supplier);
 
     if (!supplier) {
       alert("Please enter supplier name.");
       return;
     }
 
-    if (!formData.invoice.trim()) {
+    if (!invoice) {
       alert("Please enter invoice number.");
       return;
     }
@@ -357,7 +425,6 @@ function Purchases() {
       return;
     }
 
-    // Validate each item
     const invalidItem = formData.items.find(
       (item) =>
         !item.productName.trim() ||
@@ -381,11 +448,10 @@ function Purchases() {
     }
 
     if (
-      !Number.isFinite(paidAmount) ||
-      paidAmount < 0 ||
-      paidAmount > purchaseTotal
+      formData.paid !== "" &&
+      (!Number.isFinite(Number(formData.paid)) || Number(formData.paid) < 0)
     ) {
-      alert("Paid amount must be between zero and the purchase total.");
+      alert("Please enter a valid payment amount.");
       return;
     }
 
@@ -394,11 +460,9 @@ function Purchases() {
       return;
     }
 
-    // Prevent duplicate invoice numbers
     const duplicateInvoice = purchases.some(
       (purchase) =>
-        purchase.invoice?.toLowerCase().trim() ===
-        formData.invoice.toLowerCase().trim(),
+        purchase.invoice?.toLowerCase().trim() === invoice.toLowerCase(),
     );
 
     if (duplicateInvoice) {
@@ -419,17 +483,11 @@ function Purchases() {
 
       return {
         productId: existingProduct?.id || null,
-
         product: item.productName.trim(),
-
         category: item.category.trim(),
-
         size: item.size.trim(),
-
         quantity: Number(item.quantity),
-
         unit: item.unit.trim(),
-
         rate: Number(item.rate),
 
         sellingPrice:
@@ -441,45 +499,97 @@ function Purchases() {
       };
     });
 
-    const status =
-      paidAmount === 0
-        ? "Unpaid"
-        : paidAmount >= purchaseTotal
-          ? "Paid"
-          : "Partial";
+    // -----------------------------------
+    // PAYMENT RECORD
+    // -----------------------------------
+
+    const oldSupplierRecord = supplierAdvances[normalizedSupplier] || {
+      name: supplier,
+      balance: 0,
+      transactions: [],
+    };
+
+    const oldAdvanceBalance = Math.max(0, toNumber(oldSupplierRecord.balance));
+
+    const appliedAdvance = Math.min(purchaseTotal, oldAdvanceBalance);
+
+    const amountAfterAdvance = Math.max(0, purchaseTotal - appliedAdvance);
+
+    const appliedCash = Math.min(cashPaid, amountAfterAdvance);
+
+    const extraAdvance = Math.max(0, cashPaid - amountAfterAdvance);
+
+    const settledAmount = appliedAdvance + appliedCash;
+
+    const balance = Math.max(0, purchaseTotal - settledAmount);
+
+    const status = getPaymentStatus(purchaseTotal, settledAmount);
 
     const purchaseId = Date.now();
+    const createdAt = new Date().toISOString();
 
     const newPurchase = {
       id: purchaseId,
-
-      invoice: formData.invoice.trim(),
-
+      invoice,
       supplier,
-
       date: formData.date,
-
       items: selectedItems,
-
       total: purchaseTotal,
-
-      paid: paidAmount,
-
-      balance: purchaseTotal - paidAmount,
-
+      paid: settledAmount,
+      balance,
       status,
 
-      notes: formData.notes.trim(),
+      cashPaid,
+      cashApplied: appliedCash,
+      advanceApplied: appliedAdvance,
+      advanceGenerated: extraAdvance,
 
-      createdAt: new Date().toISOString(),
+      notes: formData.notes.trim(),
+      createdAt,
     };
 
     // -----------------------------------
-    // UPDATE REAL PRODUCT STOCK
+    // UPDATE SUPPLIER ADVANCE LEDGER
+    // -----------------------------------
+
+    const transactions = [...(oldSupplierRecord.transactions || [])];
+
+    if (appliedAdvance > 0) {
+      transactions.unshift({
+        id: `advance-used-${purchaseId}`,
+        type: "adjustment",
+        amount: appliedAdvance,
+        invoice,
+        date: createdAt,
+        note: `Advance adjusted against ${invoice}`,
+      });
+    }
+
+    if (extraAdvance > 0) {
+      transactions.unshift({
+        id: `advance-added-${purchaseId}`,
+        type: "credit",
+        amount: extraAdvance,
+        invoice,
+        date: createdAt,
+        note: "Extra payment saved as supplier advance",
+      });
+    }
+
+    const updatedSupplierAdvances = {
+      ...supplierAdvances,
+      [normalizedSupplier]: {
+        name: supplier,
+        balance: Math.max(0, oldAdvanceBalance - appliedAdvance + extraAdvance),
+        transactions,
+      },
+    };
+
+    // -----------------------------------
+    // UPDATE PRODUCT STOCK
     // -----------------------------------
 
     const updatedProducts = [...products];
-
     const stockActivities = [];
 
     selectedItems.forEach((item, index) => {
@@ -490,16 +600,12 @@ function Purchases() {
       );
 
       if (existingIndex !== -1) {
-        // Existing product
         const existingProduct = updatedProducts[existingIndex];
 
-        const previousStock = Number(existingProduct.stock || 0);
-
+        const previousStock = toNumber(existingProduct.stock);
         const newStock = previousStock + item.quantity;
+        const oldPurchasePrice = toNumber(existingProduct.purchasePrice);
 
-        const oldPurchasePrice = Number(existingProduct.purchasePrice || 0);
-
-        // Weighted average purchase price
         const weightedAverage =
           newStock > 0
             ? (previousStock * oldPurchasePrice + item.quantity * item.rate) /
@@ -508,11 +614,8 @@ function Purchases() {
 
         updatedProducts[existingIndex] = {
           ...existingProduct,
-
           stock: newStock,
-
           purchasePrice: Number(weightedAverage.toFixed(2)),
-
           ...(item.sellingPrice > 0 && {
             sellingPrice: item.sellingPrice,
           }),
@@ -520,44 +623,28 @@ function Purchases() {
 
         stockActivities.push({
           id: `purchase-${purchaseId}-${index}`,
-
           productId: existingProduct.id,
-
           productName: existingProduct.name,
-
           type: "add",
-
           quantity: item.quantity,
-
           previousStock,
-
           newStock,
-
           unit: item.unit,
-
-          note: `Purchase from ${supplier} · Invoice ${newPurchase.invoice}`,
-
-          date: new Date().toISOString(),
+          note: `Purchase from ${supplier} · Invoice ${invoice}`,
+          date: createdAt,
         });
+
+        selectedItems[index].productId = existingProduct.id;
       } else {
-        // New product
         const newProduct = {
           id: `product-${purchaseId}-${index}`,
-
           name: item.product,
-
           category: item.category || "Uncategorized",
-
           size: item.size || "",
-
           purchasePrice: item.rate,
-
           sellingPrice: item.sellingPrice,
-
           stock: item.quantity,
-
           unit: item.unit,
-
           minStock: item.minStock,
         };
 
@@ -565,42 +652,33 @@ function Purchases() {
 
         stockActivities.push({
           id: `purchase-${purchaseId}-${index}`,
-
           productId: newProduct.id,
-
           productName: newProduct.name,
-
           type: "add",
-
           quantity: item.quantity,
-
           previousStock: 0,
-
           newStock: item.quantity,
-
           unit: item.unit,
-
-          note: `New product added through purchase · ${newPurchase.invoice}`,
-
-          date: new Date().toISOString(),
+          note: `New product added through purchase · ${invoice}`,
+          date: createdAt,
         });
 
-        // Save generated product ID in purchase item
         selectedItems[index].productId = newProduct.id;
       }
     });
 
-    // Update ProductsContext
-    setProducts(updatedProducts);
+    // -----------------------------------
+    // SAVE ALL UPDATES
+    // -----------------------------------
 
-    // -----------------------------------
-    // SAVE STOCK HISTORY
-    // -----------------------------------
+    const updatedPurchases = [newPurchase, ...purchases];
+
+    setProducts(updatedProducts);
+    setSupplierAdvances(updatedSupplierAdvances);
+    setPurchases(updatedPurchases);
 
     try {
-      const oldHistory = JSON.parse(
-        localStorage.getItem(STOCK_HISTORY_KEY) || "[]",
-      );
+      const oldHistory = readLocalStorage(STOCK_HISTORY_KEY, []);
 
       localStorage.setItem(
         STOCK_HISTORY_KEY,
@@ -610,95 +688,62 @@ function Purchases() {
       console.error("Stock history error:", error);
     }
 
-    // -----------------------------------
-    // SAVE PURCHASE
-    // -----------------------------------
-
-    setPurchases((previous) => [newPurchase, ...previous]);
-
-    // Show first page after adding purchase
     setCurrentPage(1);
-
     setShowModal(false);
 
-    setFormData(getInitialForm());
+    setFormData(getInitialForm(generateInvoiceNumber(updatedPurchases)));
   };
 
   // -----------------------------------
-  // PAYMENT STATUS STYLE
+  // STATUS STYLE
   // -----------------------------------
 
   const getStatusStyle = (status) => {
     switch (status) {
       case "Paid":
         return "bg-emerald-50 text-emerald-700 border-emerald-100";
-
       case "Partial":
         return "bg-amber-50 text-amber-700 border-amber-100";
-
       default:
         return "bg-red-50 text-red-600 border-red-100";
     }
   };
 
   // -----------------------------------
-  // CLICKABLE STAT CARDS
+  // STAT CARDS
   // -----------------------------------
 
   const statCards = [
     {
       title: "Total Purchases",
-
       value: stats.totalPurchases,
-
       description: "All purchase invoices",
-
       icon: ShoppingCart,
-
       color: "bg-blue-50 text-blue-600",
-
       filter: "All",
     },
-
     {
       title: "Purchase Amount",
-
       value: formatCurrency(stats.totalAmount),
-
       description: "Total purchase value",
-
       icon: Wallet,
-
       color: "bg-indigo-50 text-indigo-600",
-
       filter: "All",
     },
-
     {
       title: "Total Paid",
-
       value: formatCurrency(stats.totalPaid),
-
-      description: "Payments completed",
-
+      description: "Payments settled against invoices",
       icon: CheckCircle2,
-
       color: "bg-emerald-50 text-emerald-600",
-
       filter: "Paid",
     },
-
     {
       title: "Pending Payments",
-
       value: formatCurrency(stats.totalPending),
-
       description: "Remaining supplier dues",
-
       icon: Clock,
-
       color: "bg-amber-50 text-amber-600",
-
       filter: "Pending",
     },
   ];
@@ -746,7 +791,8 @@ function Purchases() {
         {statCards.map((card, index) => {
           const Icon = card.icon;
 
-          const active = statusFilter === card.filter;
+          const active =
+            statusFilter === card.filter && (card.filter !== "All" || !search);
 
           return (
             <motion.button
@@ -788,7 +834,6 @@ function Purchases() {
                 <span className="text-xs font-semibold text-blue-600">
                   View Records
                 </span>
-
                 <ArrowUpRight size={16} className="text-blue-500" />
               </div>
             </motion.button>
@@ -798,7 +843,6 @@ function Purchases() {
 
       {/* PURCHASE HISTORY */}
       <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        {/* TABLE HEADER */}
         <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center">
           <div>
             <h2 className="text-lg font-bold text-slate-800">
@@ -811,7 +855,6 @@ function Purchases() {
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row">
-            {/* SEARCH */}
             <div className="relative">
               <Search
                 size={17}
@@ -827,7 +870,6 @@ function Purchases() {
               />
             </div>
 
-            {/* STATUS FILTER */}
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
@@ -839,6 +881,15 @@ function Purchases() {
               <option value="Unpaid">Unpaid</option>
               <option value="Pending">Pending Payments</option>
             </select>
+
+            {hasActiveFilters && (
+              <button
+                onClick={clearAllFilters}
+                className="whitespace-nowrap rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100"
+              >
+                Clear All
+              </button>
+            )}
           </div>
         </div>
 
@@ -848,21 +899,13 @@ function Purchases() {
             <thead className="bg-slate-50">
               <tr className="text-xs uppercase tracking-wider text-slate-500">
                 <th className="px-6 py-4">Invoice</th>
-
                 <th className="px-6 py-4">Supplier</th>
-
                 <th className="px-6 py-4">Date</th>
-
                 <th className="px-6 py-4">Items</th>
-
                 <th className="px-6 py-4">Total Amount</th>
-
                 <th className="px-6 py-4">Paid</th>
-
                 <th className="px-6 py-4">Balance</th>
-
                 <th className="px-6 py-4">Status</th>
-
                 <th className="px-6 py-4">Action</th>
               </tr>
             </thead>
@@ -903,7 +946,7 @@ function Purchases() {
                     </td>
 
                     <td className="px-6 py-4 font-medium text-red-500">
-                      {formatCurrency(purchase.total - purchase.paid)}
+                      {formatCurrency(getPurchaseBalance(purchase))}
                     </td>
 
                     <td className="px-6 py-4">
@@ -949,9 +992,7 @@ function Purchases() {
 
         {/* PAGINATION */}
         <div className="flex flex-col justify-between gap-4 border-t border-slate-100 p-4 lg:flex-row lg:items-center">
-          {/* LEFT SIDE: ROWS PER PAGE + SHOWING */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            {/* ROWS PER PAGE */}
             <div className="flex items-center gap-2">
               <span className="whitespace-nowrap text-xs font-medium text-slate-500">
                 Rows per page
@@ -970,7 +1011,6 @@ function Purchases() {
               </select>
             </div>
 
-            {/* SHOWING RECORDS */}
             <p className="text-xs font-medium text-slate-500">
               Showing{" "}
               <span className="font-bold text-slate-700">
@@ -982,24 +1022,9 @@ function Purchases() {
               </span>{" "}
               purchases
             </p>
-
-            {/* CLEAR FILTER */}
-            {statusFilter !== "All" && (
-              <button
-                onClick={() => {
-                  setStatusFilter("All");
-                  setCurrentPage(1);
-                }}
-                className="text-xs font-semibold text-blue-600 transition hover:text-blue-700"
-              >
-                Clear Filter
-              </button>
-            )}
           </div>
 
-          {/* RIGHT SIDE: PAGE NAVIGATION */}
           <div className="flex flex-wrap items-center gap-1.5">
-            {/* PREVIOUS */}
             <button
               onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
               disabled={currentPage === 1 || totalPages === 0}
@@ -1009,7 +1034,6 @@ function Purchases() {
               <ChevronLeft size={17} />
             </button>
 
-            {/* PAGE NUMBERS */}
             {pageNumbers.map((page) => (
               <button
                 key={page}
@@ -1024,7 +1048,6 @@ function Purchases() {
               </button>
             ))}
 
-            {/* NEXT */}
             <button
               onClick={() =>
                 setCurrentPage((page) => Math.min(totalPages, page + 1))
@@ -1152,7 +1175,7 @@ function Purchases() {
                       );
 
                       const lineTotal =
-                        Number(item.quantity || 0) * Number(item.rate || 0);
+                        toNumber(item.quantity) * toNumber(item.rate);
 
                       return (
                         <div
@@ -1224,7 +1247,6 @@ function Purchases() {
                               </datalist>
                             </div>
 
-                            {/* CATEGORY */}
                             {!existingProduct && (
                               <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -1257,7 +1279,6 @@ function Purchases() {
                               </div>
                             )}
 
-                            {/* SIZE */}
                             {!existingProduct && (
                               <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -1280,7 +1301,6 @@ function Purchases() {
                               </div>
                             )}
 
-                            {/* UNIT */}
                             <div>
                               <label className="mb-2 block text-sm font-medium text-slate-700">
                                 Unit *
@@ -1302,7 +1322,6 @@ function Purchases() {
                               />
                             </div>
 
-                            {/* QUANTITY */}
                             <div>
                               <label className="mb-2 block text-sm font-medium text-slate-700">
                                 Quantity *
@@ -1326,7 +1345,6 @@ function Purchases() {
                               />
                             </div>
 
-                            {/* PURCHASE RATE */}
                             <div>
                               <label className="mb-2 block text-sm font-medium text-slate-700">
                                 Purchase Rate (Rs.) *
@@ -1350,7 +1368,6 @@ function Purchases() {
                               />
                             </div>
 
-                            {/* SELLING PRICE */}
                             <div>
                               <label className="mb-2 block text-sm font-medium text-slate-700">
                                 Selling Price (Rs.)
@@ -1377,7 +1394,6 @@ function Purchases() {
                               />
                             </div>
 
-                            {/* MINIMUM STOCK */}
                             {!existingProduct && (
                               <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -1402,7 +1418,6 @@ function Purchases() {
                             )}
                           </div>
 
-                          {/* ITEM TOTAL */}
                           <div className="mt-4 flex items-center justify-between border-t border-slate-200 pt-3">
                             <span className="text-sm text-slate-500">
                               Item Subtotal
@@ -1425,6 +1440,33 @@ function Purchases() {
                     Payment Information
                   </h3>
 
+                  {formData.supplier.trim() && (
+                    <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-blue-800">
+                            Available Supplier Advance
+                          </p>
+
+                          <p className="mt-1 text-xs text-blue-600">
+                            Existing advance for this supplier.
+                          </p>
+                        </div>
+
+                        <p className="text-lg font-bold text-blue-700">
+                          {formatCurrency(availableSupplierAdvance)}
+                        </p>
+                      </div>
+
+                      {advanceApplied > 0 && (
+                        <p className="mt-2 text-xs font-medium text-blue-700">
+                          {formatCurrency(advanceApplied)} will automatically be
+                          adjusted against this purchase.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <label className="mb-2 block text-sm font-medium text-slate-700">
@@ -1435,16 +1477,16 @@ function Purchases() {
                         type="number"
                         name="paid"
                         min="0"
-                        max={purchaseTotal}
                         step="any"
                         value={formData.paid}
                         onChange={handleChange}
-                        placeholder="Enter paid amount"
-                        className="purchase-input"
+                        placeholder="Enter payment amount"
+                        className="purchase-input paid-amount-input"
                       />
 
                       <p className="mt-1 text-xs text-slate-400">
-                        Leave empty if payment has not been made.
+                        Enter the actual cash amount paid to the supplier. Extra
+                        payment will become advance.
                       </p>
                     </div>
 
@@ -1469,31 +1511,41 @@ function Purchases() {
                 <section className="rounded-2xl bg-slate-900 p-5 text-white">
                   <div className="mb-4 flex items-center justify-between">
                     <h3 className="font-semibold">Purchase Summary</h3>
-
                     <FileText size={20} className="text-blue-400" />
                   </div>
 
                   <div className="space-y-3">
                     <div className="flex justify-between text-sm text-slate-300">
                       <span>Total Items</span>
-
                       <span>{formData.items.length}</span>
                     </div>
 
                     <div className="flex justify-between text-sm text-slate-300">
                       <span>Total Purchase</span>
-
                       <span>{formatCurrency(purchaseTotal)}</span>
                     </div>
 
-                    <div className="flex justify-between text-sm text-emerald-400">
-                      <span>Paid Amount</span>
-
-                      <span>{formatCurrency(paidAmount)}</span>
+                    <div className="flex justify-between text-sm text-blue-300">
+                      <span>Previous Advance Used</span>
+                      <span>{formatCurrency(advanceApplied)}</span>
                     </div>
 
+                    <div className="flex justify-between text-sm text-emerald-400">
+                      <span>Cash Payment Applied</span>
+                      <span>{formatCurrency(cashApplied)}</span>
+                    </div>
+
+                    {newAdvance > 0 && (
+                      <div className="flex justify-between text-sm text-cyan-300">
+                        <span>Extra Payment → New Advance</span>
+                        <span>{formatCurrency(newAdvance)}</span>
+                      </div>
+                    )}
+
                     <div className="flex justify-between border-t border-slate-700 pt-4">
-                      <span className="font-semibold">Remaining Balance</span>
+                      <span className="font-semibold">
+                        Remaining Invoice Balance
+                      </span>
 
                       <span className="text-xl font-bold text-amber-400">
                         {formatCurrency(remainingAmount)}
@@ -1515,16 +1567,27 @@ function Purchases() {
                         {paymentStatus}
                       </span>
                     </div>
+
+                    <div className="flex justify-between border-t border-slate-700 pt-3 text-sm">
+                      <span className="text-slate-300">
+                        Supplier Advance After Purchase
+                      </span>
+
+                      <span className="font-semibold text-cyan-300">
+                        {formatCurrency(supplierAdvanceAfterPurchase)}
+                      </span>
+                    </div>
                   </div>
                 </section>
 
-                {/* IMPORTANT NOTICE */}
+                {/* NOTICE */}
                 <div className="flex gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
                   <AlertCircle size={19} className="shrink-0 text-blue-600" />
 
                   <p className="text-xs leading-5 text-blue-700">
                     Saving this purchase will automatically increase inventory
                     stock. New product names will be added to your product list.
+                    Supplier advances will also be adjusted automatically.
                   </p>
                 </div>
               </div>
@@ -1541,7 +1604,7 @@ function Purchases() {
 
                 <button
                   type="submit"
-                  disabled={purchaseTotal <= 0 || paidAmount > purchaseTotal}
+                  disabled={purchaseTotal <= 0}
                   className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   <CheckCircle2 size={18} />
@@ -1668,12 +1731,58 @@ function Purchases() {
               <div className="space-y-3 rounded-xl bg-slate-900 p-5 text-sm text-white">
                 <div className="flex justify-between">
                   <span className="text-slate-300">Total Amount</span>
-
                   <strong>{formatCurrency(selectedPurchase.total)}</strong>
                 </div>
 
                 <div className="flex justify-between">
-                  <span className="text-slate-300">Paid Amount</span>
+                  <span className="text-slate-300">Previous Advance Used</span>
+
+                  <strong className="text-blue-300">
+                    {formatCurrency(selectedPurchase.advanceApplied || 0)}
+                  </strong>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-slate-300">Actual Cash Paid</span>
+
+                  <strong className="text-emerald-400">
+                    {formatCurrency(
+                      selectedPurchase.cashPaid ?? selectedPurchase.paid,
+                    )}
+                  </strong>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-slate-300">
+                    Cash Applied to Invoice
+                  </span>
+
+                  <strong>
+                    {formatCurrency(
+                      selectedPurchase.cashApplied ??
+                        Math.max(
+                          0,
+                          toNumber(selectedPurchase.paid) -
+                            toNumber(selectedPurchase.advanceApplied),
+                        ),
+                    )}
+                  </strong>
+                </div>
+
+                {toNumber(selectedPurchase.advanceGenerated) > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-300">
+                      Extra Payment Saved as Advance
+                    </span>
+
+                    <strong className="text-cyan-300">
+                      {formatCurrency(selectedPurchase.advanceGenerated)}
+                    </strong>
+                  </div>
+                )}
+
+                <div className="flex justify-between border-t border-slate-700 pt-3">
+                  <span className="font-semibold">Total Settled</span>
 
                   <strong className="text-emerald-400">
                     {formatCurrency(selectedPurchase.paid)}
@@ -1684,9 +1793,7 @@ function Purchases() {
                   <span className="font-semibold">Remaining Balance</span>
 
                   <strong className="text-lg text-amber-400">
-                    {formatCurrency(
-                      selectedPurchase.total - selectedPurchase.paid,
-                    )}
+                    {formatCurrency(getPurchaseBalance(selectedPurchase))}
                   </strong>
                 </div>
               </div>
@@ -1728,6 +1835,18 @@ function Purchases() {
 
         .purchase-input::placeholder {
           color: #94a3b8;
+        }
+
+        /* Remove number spinner only from Paid Amount */
+        .paid-amount-input::-webkit-inner-spin-button,
+        .paid-amount-input::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+
+        .paid-amount-input {
+          -moz-appearance: textfield;
+          appearance: textfield;
         }
       `}</style>
     </div>
