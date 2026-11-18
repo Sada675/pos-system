@@ -19,6 +19,7 @@ import {
   Mail,
   ChevronRight,
   AlertCircle,
+  AlertTriangle,
   UserRound,
 } from "lucide-react";
 
@@ -207,6 +208,12 @@ function Customers() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [alertMessage, setAlertMessage] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+
+  const showAlert = (message) => {
+    setAlertMessage(String(message));
+  };
 
   const [errors, setErrors] = useState({
     name: "",
@@ -455,7 +462,7 @@ function Customers() {
     const result = addCustomer(customerData);
 
     if (!result?.success) {
-      alert(result?.message || "Unable to add customer. Please try again.");
+      showAlert(result?.message || "Unable to add customer. Please try again.");
 
       return;
     }
@@ -488,18 +495,19 @@ function Customers() {
 
   const handleDelete = (e, customer) => {
     e.stopPropagation();
+    setDeleteConfirmation(customer);
+  };
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ${customer.name}?`,
-    );
+  const confirmDelete = () => {
+    if (!deleteConfirmation) return;
 
-    if (!confirmed) return;
+    deleteCustomer(deleteConfirmation.id);
 
-    deleteCustomer(customer.id);
-
-    if (selectedCustomer?.id === customer.id) {
+    if (selectedCustomer?.id === deleteConfirmation.id) {
       setSelectedCustomer(null);
     }
+
+    setDeleteConfirmation(null);
   };
 
   /* =========================================
@@ -982,6 +990,102 @@ function Customers() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* CENTERED WARNING MODAL */}
+      <AnimatePresence>
+        {alertMessage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+            onClick={() => setAlertMessage("")}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-3xl border border-slate-100 bg-white p-7 text-center shadow-2xl"
+            >
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-500">
+                <AlertCircle size={30} />
+              </div>
+
+              <h3 className="mt-5 text-xl font-bold text-slate-800">
+                Attention Required
+              </h3>
+
+              <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-500">
+                {alertMessage}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setAlertMessage("")}
+                className="mt-6 w-full rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-blue-100 transition hover:bg-blue-700"
+              >
+                Okay, Got It
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* DELETE CUSTOMER CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {deleteConfirmation && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+            onClick={() => setDeleteConfirmation(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-3xl border border-slate-100 bg-white p-7 text-center shadow-2xl"
+            >
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 text-red-500">
+                <AlertTriangle size={30} />
+              </div>
+
+              <h3 className="mt-5 text-xl font-bold text-slate-800">
+                Delete Customer?
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                Are you sure you want to delete{" "}
+                <span className="font-semibold text-slate-700">
+                  {deleteConfirmation.name}
+                </span>
+                ? This action cannot be undone.
+              </p>
+
+              <div className="mt-6 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmation(null)}
+                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  className="rounded-xl bg-red-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-red-100 transition hover:bg-red-700"
+                >
+                  Yes, Delete
+                </button>
+              </div>
             </motion.div>
           </motion.div>
         )}

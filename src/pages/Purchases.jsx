@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProducts } from "../context/ProductsContext";
+import SupplierPurchaseDetails from "../components/purchases/SupplierPurchaseDetails";
 
 import {
   Search,
@@ -20,15 +21,16 @@ import {
   ChevronLeft,
   ChevronRight,
   Printer,
+  UserPlus,
+  Phone,
+  Check,
+  Users,
 } from "lucide-react";
 
 const PURCHASES_KEY = "steel-store-purchases";
 const STOCK_HISTORY_KEY = "steel-store-stock-history";
 const SUPPLIER_ADVANCES_KEY = "steel-store-supplier-advances";
-
-// -----------------------------------
-// HELPERS
-// -----------------------------------
+const SUPPLIERS_KEY = "steel-store-suppliers";
 
 const formatCurrency = (amount) =>
   `Rs. ${Number(amount || 0).toLocaleString("en-PK", {
@@ -36,110 +38,149 @@ const formatCurrency = (amount) =>
   })}`;
 
 const toNumber = (value) => {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
 };
 
-const normalizeSupplier = (supplier) =>
-  String(supplier || "")
+const normalizeSupplier = (value) =>
+  String(value || "")
     .trim()
     .toLowerCase();
 
+const normalizePhone = (value) =>
+  String(value || "")
+    .replace(/\D/g, "")
+    .replace(/^0092/, "92")
+    .replace(/^0(?=\d{10}$)/, "92");
+
 const escapeHTML = (value) =>
-  String(value ?? "").replace(/[&<>"']/g, (character) => {
-    const entities = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;",
-    };
-
-    return entities[character];
-  });
-
-const getPurchaseBalance = (purchase) => {
-  if (purchase.balance !== undefined && purchase.balance !== null) {
-    return Math.max(0, toNumber(purchase.balance));
-  }
-
-  return Math.max(0, toNumber(purchase.total) - toNumber(purchase.paid));
-};
-
-const getPaymentStatus = (total, paid) => {
-  if (paid <= 0) return "Unpaid";
-  if (paid >= total) return "Paid";
-  return "Partial";
-};
+  String(value ?? "").replace(
+    /[&<>"']/g,
+    (c) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[c],
+  );
 
 const readLocalStorage = (key, fallback) => {
   try {
-    const saved = localStorage.getItem(key);
-    return saved ? JSON.parse(saved) : fallback;
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
   } catch {
     return fallback;
   }
 };
 
-// -----------------------------------
-// INVOICE NUMBER
-// -----------------------------------
+const getPurchaseBalance = (purchase) =>
+  purchase.balance != null
+    ? Math.max(0, toNumber(purchase.balance))
+    : Math.max(0, toNumber(purchase.total) - toNumber(purchase.paid));
+
+const getPaymentStatus = (total, paid) =>
+  paid <= 0 ? "Unpaid" : paid >= total ? "Paid" : "Partial";
 
 const generateInvoiceNumber = (purchases = []) => {
-  const year = new Date().getFullYear();
-  const prefix = `INV-${year}-`;
+  const prefix = `INV-${new Date().getFullYear()}-`;
 
-  const existingNumbers = purchases.map((purchase) => {
-    const invoice = String(purchase.invoice || "");
+  const max = purchases.reduce((highest, p) => {
+    const invoice = String(p.invoice || "");
 
-    if (!invoice.startsWith(prefix)) return 0;
+    if (!invoice.startsWith(prefix)) return highest;
 
-    const sequence = Number(invoice.slice(prefix.length));
-    return Number.isFinite(sequence) ? sequence : 0;
-  });
+    const n = Number(invoice.slice(prefix.length));
 
-  const nextNumber = Math.max(0, ...existingNumbers) + 1;
+    return Number.isFinite(n) ? Math.max(highest, n) : highest;
+  }, 0);
 
-  return `${prefix}${String(nextNumber).padStart(4, "0")}`;
+  return `${prefix}${String(max + 1).padStart(4, "0")}`;
 };
 
-// -----------------------------------
-// INITIAL FORM
-// -----------------------------------
-
-const getInitialForm = (invoice) => ({
-  supplier: "",
-  invoice: invoice || generateInvoiceNumber(),
-  date: new Date().toISOString().split("T")[0],
-  paid: "",
-  items: [
-    {
-      productName: "",
-      category: "",
-      size: "",
-      unit: "KG",
-      quantity: "",
-      rate: "",
-      sellingPrice: "",
-      minStock: 5,
-    },
-  ],
+const emptyItem = () => ({
+  productName: "",
+  category: "",
+  size: "",
+  unit: "KG",
+  quantity: "",
+  rate: "",
+  sellingPrice: "",
+  minStock: 5,
 });
 
-// -----------------------------------
-// MAIN COMPONENT
-// -----------------------------------
+const getInitialForm = (invoice) => ({
+  supplierId: "",
+  supplier: "",
+  supplierPhone: "",
+  invoice: invoice || "",
+  date: new Date().toISOString().split("T")[0],
+  paid: "",
+  items: [emptyItem()],
+});
 
 function Purchases() {
   const { products = [], setProducts, categories = [] } = useProducts();
 
-  const [purchases, setPurchases] = useState(() =>
-    readLocalStorage(PURCHASES_KEY, []),
-  );
+  const [purchases, setPurchases] = useState(() => {
+    const saved = readLocalStorage(PURCHASES_KEY, []);
+    return Array.isArray(saved) ? saved : [];
+  });
+
+  const [suppliers, setSuppliers] = useState(() => {
+    const saved = readLocalStorage(SUPPLIERS_KEY, []);
+    return Array.isArray(saved) ? saved : [];
+  });
 
   const [supplierAdvances, setSupplierAdvances] = useState(() =>
     readLocalStorage(SUPPLIER_ADVANCES_KEY, {}),
   );
+
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(8);
+
+  const [showModal, setShowModal] = useState(false);
+  const [selectedPurchase, setSelectedPurchase] = useState(null);
+  const [selectedSupplierGroup, setSelectedSupplierGroup] = useState(null);
+
+  const [showSupplierModal, setShowSupplierModal] = useState(false);
+  const [supplierSearch, setSupplierSearch] = useState("");
+  const [showSupplierOptions, setShowSupplierOptions] = useState(false);
+
+  const [supplierForm, setSupplierForm] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+  });
+
+  const [alertMessage, setAlertMessage] = useState("");
+
+  const [formData, setFormData] = useState(() =>
+    getInitialForm(generateInvoiceNumber(readLocalStorage(PURCHASES_KEY, []))),
+  );
+
+  // Prevent number inputs from changing through mouse wheel.
+  useEffect(() => {
+    const preventWheelChange = (e) => {
+      if (e.target instanceof HTMLInputElement && e.target.type === "number") {
+        e.preventDefault();
+        e.target.blur();
+      }
+    };
+
+    document.addEventListener("wheel", preventWheelChange, {
+      capture: true,
+      passive: false,
+    });
+
+    return () => {
+      document.removeEventListener("wheel", preventWheelChange, true);
+    };
+  }, []);
 
   useEffect(() => {
     localStorage.setItem(PURCHASES_KEY, JSON.stringify(purchases));
@@ -152,41 +193,32 @@ function Purchases() {
     );
   }, [supplierAdvances]);
 
-  // -----------------------------------
-  // SEARCH AND FILTERS
-  // -----------------------------------
+  useEffect(() => {
+    localStorage.setItem(SUPPLIERS_KEY, JSON.stringify(suppliers));
+  }, [suppliers]);
 
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("All");
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(8);
-
-  // -----------------------------------
-  // MODALS
-  // -----------------------------------
-
-  const [showModal, setShowModal] = useState(false);
-  const [selectedPurchase, setSelectedPurchase] = useState(null);
-
-  const [formData, setFormData] = useState(() =>
-    getInitialForm(generateInvoiceNumber(readLocalStorage(PURCHASES_KEY, []))),
+  // Selected supplier in purchase form.
+  const selectedSupplier = suppliers.find(
+    (s) => String(s.id) === String(formData.supplierId),
   );
 
-  // -----------------------------------
-  // SUPPLIER ADVANCE
-  // -----------------------------------
+  const supplierKey = selectedSupplier
+    ? `supplier:${selectedSupplier.id}`
+    : formData.supplierId
+      ? `supplier:${formData.supplierId}`
+      : normalizeSupplier(formData.supplier);
 
-  const supplierKey = normalizeSupplier(formData.supplier);
+  const legacySupplierKey = normalizeSupplier(formData.supplier);
 
-  const availableSupplierAdvance = supplierKey
-    ? Math.max(0, toNumber(supplierAdvances[supplierKey]?.balance))
-    : 0;
+  const availableSupplierAdvance = Math.max(
+    0,
+    toNumber(
+      supplierAdvances[supplierKey]?.balance ??
+        supplierAdvances[legacySupplierKey]?.balance,
+    ),
+  );
 
-  // -----------------------------------
-  // PURCHASE TOTAL
-  // -----------------------------------
-
+  // Purchase calculations.
   const purchaseTotal = useMemo(
     () =>
       formData.items.reduce(
@@ -195,10 +227,6 @@ function Purchases() {
       ),
     [formData.items],
   );
-
-  // -----------------------------------
-  // PAYMENT CALCULATIONS
-  // -----------------------------------
 
   const cashPaid = Math.max(0, toNumber(formData.paid));
 
@@ -219,566 +247,269 @@ function Purchases() {
   const supplierAdvanceAfterPurchase =
     availableSupplierAdvance - advanceApplied + newAdvance;
 
-  // -----------------------------------
-  // STATISTICS
-  // -----------------------------------
-
-  const stats = useMemo(() => {
-    const totalAmount = purchases.reduce(
-      (sum, purchase) => sum + toNumber(purchase.total),
-      0,
-    );
-
-    const totalPaid = purchases.reduce(
-      (sum, purchase) => sum + toNumber(purchase.paid),
-      0,
-    );
-
-    const totalPending = purchases.reduce(
-      (sum, purchase) => sum + getPurchaseBalance(purchase),
-      0,
-    );
-
-    return {
+  // Overall statistics remain invoice-based.
+  const stats = useMemo(
+    () => ({
       totalPurchases: purchases.length,
-      totalAmount,
-      totalPaid,
-      totalPending,
-    };
-  }, [purchases]);
 
-  // -----------------------------------
-  // FILTER PURCHASES
-  // -----------------------------------
+      totalSuppliers: new Set(
+        purchases.map((p) =>
+          p.supplierId
+            ? `id:${p.supplierId}`
+            : `legacy:${normalizeSupplier(p.supplier)}:${normalizePhone(
+                p.supplierPhone,
+              )}`,
+        ),
+      ).size,
 
-  const filteredPurchases = useMemo(() => {
-    return purchases.filter((purchase) => {
-      const searchValue = search.toLowerCase().trim();
+      totalAmount: purchases.reduce((sum, p) => sum + toNumber(p.total), 0),
 
-      const matchesSearch =
-        String(purchase.invoice || "")
-          .toLowerCase()
-          .includes(searchValue) ||
-        String(purchase.supplier || "")
-          .toLowerCase()
-          .includes(searchValue) ||
-        (purchase.items || []).some((item) =>
-          String(item.product || "")
-            .toLowerCase()
-            .includes(searchValue),
+      totalPaid: purchases.reduce((sum, p) => sum + toNumber(p.paid), 0),
+
+      totalPending: purchases.reduce(
+        (sum, p) => sum + getPurchaseBalance(p),
+        0,
+      ),
+    }),
+    [purchases],
+  );
+
+  // Group all invoices by supplier.
+  const supplierGroups = useMemo(() => {
+    const groups = new Map();
+
+    purchases.forEach((purchase) => {
+      const key = purchase.supplierId
+        ? `id:${purchase.supplierId}`
+        : `legacy:${normalizeSupplier(purchase.supplier)}:${normalizePhone(
+            purchase.supplierPhone,
+          )}`;
+
+      if (!groups.has(key)) {
+        const supplierRecord = suppliers.find(
+          (s) => String(s.id) === String(purchase.supplierId),
         );
 
-      let matchesStatus = true;
-
-      if (statusFilter === "Pending") {
-        matchesStatus = getPurchaseBalance(purchase) > 0;
-      } else if (statusFilter !== "All") {
-        matchesStatus = purchase.status === statusFilter;
+        groups.set(key, {
+          key,
+          supplierId: purchase.supplierId || null,
+          name: supplierRecord?.name || purchase.supplier || "Unknown Supplier",
+          phone: supplierRecord?.phone || purchase.supplierPhone || "",
+          email: supplierRecord?.email || "",
+          address: supplierRecord?.address || "",
+          purchases: [],
+          totalAmount: 0,
+          totalPaid: 0,
+          totalPending: 0,
+          totalItems: 0,
+          lastPurchaseDate: purchase.date || "",
+        });
       }
 
-      return matchesSearch && matchesStatus;
+      const group = groups.get(key);
+
+      group.purchases.push(purchase);
+      group.totalAmount += toNumber(purchase.total);
+      group.totalPaid += toNumber(purchase.paid);
+      group.totalPending += getPurchaseBalance(purchase);
+
+      group.totalItems += (purchase.items || []).reduce(
+        (sum, item) => sum + toNumber(item.quantity),
+        0,
+      );
+
+      if (
+        new Date(purchase.date || purchase.createdAt) >
+        new Date(group.lastPurchaseDate || 0)
+      ) {
+        group.lastPurchaseDate = purchase.date || "";
+      }
     });
-  }, [purchases, search, statusFilter]);
 
-  const hasActiveFilters = search.trim() !== "" || statusFilter !== "All";
+    return Array.from(groups.values()).map((group) => ({
+      ...group,
+      invoiceCount: group.purchases.length,
+      status:
+        group.totalPending <= 0
+          ? "Paid"
+          : group.totalPaid <= 0
+            ? "Unpaid"
+            : "Partial",
+    }));
+  }, [purchases, suppliers]);
 
-  const clearAllFilters = () => {
-    setSearch("");
-    setStatusFilter("All");
-    setCurrentPage(1);
-  };
+  // Supplier overview filtering.
+  const filteredSuppliers = useMemo(() => {
+    const q = search.trim().toLowerCase();
 
-  // -----------------------------------
-  // PAGINATION
-  // -----------------------------------
+    return supplierGroups
+      .filter((supplier) => {
+        const matchesSearch =
+          !q ||
+          supplier.name.toLowerCase().includes(q) ||
+          supplier.phone.toLowerCase().includes(q);
 
-  const totalPages = Math.ceil(filteredPurchases.length / itemsPerPage);
+        const matchesStatus =
+          statusFilter === "All"
+            ? true
+            : statusFilter === "Pending"
+              ? supplier.totalPending > 0
+              : supplier.status === statusFilter;
+
+        return matchesSearch && matchesStatus;
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.lastPurchaseDate || 0) - new Date(a.lastPurchaseDate || 0),
+      );
+  }, [supplierGroups, search, statusFilter]);
+
+  const totalPages = Math.ceil(filteredSuppliers.length / itemsPerPage);
 
   const startIndex = (currentPage - 1) * itemsPerPage;
 
   const endIndex = Math.min(
     startIndex + itemsPerPage,
-    filteredPurchases.length,
+    filteredSuppliers.length,
   );
 
-  const paginatedPurchases = filteredPurchases.slice(startIndex, endIndex);
+  const paginatedSuppliers = filteredSuppliers.slice(startIndex, endIndex);
 
-  const pageNumbers = Array.from(
-    { length: totalPages },
-    (_, index) => index + 1,
-  );
+  const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1);
+
+  const hasActiveFilters = search.trim() !== "" || statusFilter !== "All";
 
   useEffect(() => {
     setCurrentPage(1);
   }, [search, statusFilter, itemsPerPage]);
 
   useEffect(() => {
-    if (totalPages === 0) {
-      setCurrentPage(1);
-    } else if (currentPage > totalPages) {
-      setCurrentPage(totalPages);
-    }
+    if (!totalPages) setCurrentPage(1);
+    else if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [currentPage, totalPages]);
 
-  // -----------------------------------
-  // PRINT PURCHASES
-  // -----------------------------------
+  const showAlert = (message) => setAlertMessage(message);
 
-  const handlePrintPurchase = (selected = null) => {
-    const purchasesToPrint = selected ? [selected] : purchases;
+  const getStatusStyle = (status) => {
+    switch (status) {
+      case "Paid":
+        return "bg-emerald-50 text-emerald-700 border-emerald-100";
 
-    if (!purchasesToPrint.length) {
-      alert("No purchase records available to print.");
-      return;
+      case "Partial":
+        return "bg-amber-50 text-amber-700 border-amber-100";
+
+      default:
+        return "bg-red-50 text-red-600 border-red-100";
     }
-
-    const printWindow = window.open("", "_blank", "width=1100,height=850");
-
-    if (!printWindow) {
-      alert("Please allow pop-ups to print purchase invoices.");
-      return;
-    }
-
-    const invoicesHTML = purchasesToPrint
-      .map((purchase) => {
-        const items = Array.isArray(purchase.items) ? purchase.items : [];
-
-        const total = toNumber(purchase.total);
-        const paid = toNumber(purchase.paid);
-        const balance = getPurchaseBalance(purchase);
-
-        const itemRows = items
-          .map((item, index) => {
-            const quantity = toNumber(item.quantity);
-            const rate = toNumber(item.rate);
-            const lineTotal = quantity * rate;
-
-            return `
-              <tr>
-                <td>${index + 1}</td>
-                <td>
-                  <strong>${escapeHTML(item.product)}</strong>
-                  ${
-                    item.size
-                      ? `<br/><small>${escapeHTML(item.size)}</small>`
-                      : ""
-                  }
-                </td>
-                <td>${escapeHTML(item.category || "-")}</td>
-                <td>${quantity.toLocaleString("en-PK")} ${escapeHTML(item.unit || "")}</td>
-                <td>${formatCurrency(rate)}</td>
-                <td>${formatCurrency(lineTotal)}</td>
-              </tr>
-            `;
-          })
-          .join("");
-
-        const actualCashPaid = toNumber(purchase.cashPaid ?? purchase.paid);
-
-        const cashApplied = toNumber(
-          purchase.cashApplied ??
-            Math.max(0, paid - toNumber(purchase.advanceApplied)),
-        );
-
-        const advanceApplied = toNumber(purchase.advanceApplied);
-        const advanceGenerated = toNumber(purchase.advanceGenerated);
-
-        return `
-          <section class="invoice">
-            <div class="invoice-header">
-              <div>
-                <h2>Purchase Invoice</h2>
-                <p class="invoice-number">${escapeHTML(purchase.invoice)}</p>
-              </div>
-
-              <div class="status ${
-                purchase.status === "Paid"
-                  ? "paid"
-                  : purchase.status === "Partial"
-                    ? "partial"
-                    : "unpaid"
-              }">
-                ${escapeHTML(purchase.status || "Unpaid")}
-              </div>
-            </div>
-
-            <div class="supplier-details">
-              <div>
-                <span>Supplier</span>
-                <strong>${escapeHTML(purchase.supplier)}</strong>
-              </div>
-
-              <div>
-                <span>Invoice Number</span>
-                <strong>${escapeHTML(purchase.invoice)}</strong>
-              </div>
-
-              <div>
-                <span>Purchase Date</span>
-                <strong>${escapeHTML(purchase.date)}</strong>
-              </div>
-            </div>
-
-            <h3>Purchased Products</h3>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Product</th>
-                  <th>Category</th>
-                  <th>Quantity</th>
-                  <th>Purchase Rate</th>
-                  <th>Subtotal</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                ${itemRows || `<tr><td colspan="6">No items found.</td></tr>`}
-              </tbody>
-            </table>
-
-            <div class="payment-section">
-              <div class="payment-row">
-                <span>Total Purchase</span>
-                <strong>${formatCurrency(total)}</strong>
-              </div>
-
-              <div class="payment-row">
-                <span>Previous Advance Used</span>
-                <strong>${formatCurrency(advanceApplied)}</strong>
-              </div>
-
-              <div class="payment-row">
-                <span>Actual Cash Paid</span>
-                <strong>${formatCurrency(actualCashPaid)}</strong>
-              </div>
-
-              <div class="payment-row">
-                <span>Cash Applied to Invoice</span>
-                <strong>${formatCurrency(cashApplied)}</strong>
-              </div>
-
-              ${
-                advanceGenerated > 0
-                  ? `
-                    <div class="payment-row">
-                      <span>Extra Payment Saved as Advance</span>
-                      <strong>${formatCurrency(advanceGenerated)}</strong>
-                    </div>
-                  `
-                  : ""
-              }
-
-              <div class="payment-row settled">
-                <span>Total Settled</span>
-                <strong>${formatCurrency(paid)}</strong>
-              </div>
-
-              <div class="payment-row balance">
-                <span>Remaining Balance</span>
-                <strong>${formatCurrency(balance)}</strong>
-              </div>
-            </div>
-          </section>
-        `;
-      })
-      .join("");
-
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html>
-        <head>
-          <title>
-            ${selected ? "Purchase Invoice" : "All Purchase Invoices"}
-          </title>
-
-          <meta charset="UTF-8" />
-
-          <style>
-            * {
-              box-sizing: border-box;
-            }
-
-            body {
-              margin: 0;
-              padding: 30px;
-              font-family: Arial, sans-serif;
-              color: #1e293b;
-              background: #fff;
-              font-size: 12px;
-            }
-
-            .report-header {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              border-bottom: 2px solid #2563eb;
-              padding-bottom: 18px;
-              margin-bottom: 25px;
-            }
-
-            .report-header h1 {
-              margin: 0;
-              font-size: 25px;
-              color: #1e293b;
-            }
-
-            .report-header p {
-              margin: 6px 0 0;
-              color: #64748b;
-              font-size: 12px;
-            }
-
-            .report-date {
-              color: #64748b;
-              text-align: right;
-              font-size: 11px;
-            }
-
-            .invoice {
-              margin-bottom: 35px;
-              padding-bottom: 28px;
-              border-bottom: 2px dashed #cbd5e1;
-              page-break-inside: avoid;
-            }
-
-            .invoice:last-child {
-              border-bottom: none;
-            }
-
-            .invoice-header {
-              display: flex;
-              align-items: center;
-              justify-content: space-between;
-              margin-bottom: 18px;
-            }
-
-            .invoice-header h2 {
-              margin: 0;
-              font-size: 18px;
-            }
-
-            .invoice-number {
-              margin: 5px 0 0;
-              color: #2563eb;
-              font-weight: bold;
-            }
-
-            .status {
-              padding: 7px 13px;
-              border-radius: 30px;
-              font-size: 11px;
-              font-weight: bold;
-            }
-
-            .paid {
-              background: #dcfce7;
-              color: #15803d;
-            }
-
-            .partial {
-              background: #fef3c7;
-              color: #b45309;
-            }
-
-            .unpaid {
-              background: #fee2e2;
-              color: #b91c1c;
-            }
-
-            .supplier-details {
-              display: grid;
-              grid-template-columns: repeat(3, 1fr);
-              gap: 15px;
-              background: #f8fafc;
-              border: 1px solid #e2e8f0;
-              border-radius: 8px;
-              padding: 14px;
-              margin-bottom: 22px;
-            }
-
-            .supplier-details div {
-              display: flex;
-              flex-direction: column;
-              gap: 6px;
-            }
-
-            .supplier-details span {
-              color: #64748b;
-              font-size: 10px;
-            }
-
-            .supplier-details strong {
-              color: #1e293b;
-              font-size: 12px;
-            }
-
-            h3 {
-              margin: 0 0 12px;
-              font-size: 14px;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-bottom: 20px;
-            }
-
-            th {
-              background: #f1f5f9;
-              color: #475569;
-              text-align: left;
-              font-size: 10px;
-              text-transform: uppercase;
-              padding: 11px 9px;
-            }
-
-            td {
-              padding: 11px 9px;
-              border-bottom: 1px solid #e2e8f0;
-              font-size: 11px;
-            }
-
-            td small {
-              color: #64748b;
-            }
-
-            .payment-section {
-              width: 100%;
-              max-width: 380px;
-              margin-left: auto;
-              padding: 15px;
-              background: #f8fafc;
-              border: 1px solid #e2e8f0;
-              border-radius: 8px;
-            }
-
-            .payment-row {
-              display: flex;
-              justify-content: space-between;
-              gap: 15px;
-              padding: 7px 0;
-              color: #475569;
-            }
-
-            .payment-row strong {
-              color: #1e293b;
-            }
-
-            .settled {
-              border-top: 1px solid #cbd5e1;
-              margin-top: 5px;
-              padding-top: 12px;
-              color: #15803d;
-              font-weight: bold;
-            }
-
-            .settled strong {
-              color: #15803d;
-            }
-
-            .balance {
-              border-top: 1px solid #cbd5e1;
-              margin-top: 5px;
-              padding-top: 12px;
-              color: #b45309;
-              font-weight: bold;
-            }
-
-            .balance strong {
-              color: #b45309;
-              font-size: 14px;
-            }
-
-            .footer {
-              margin-top: 25px;
-              padding-top: 12px;
-              border-top: 1px solid #e2e8f0;
-              text-align: center;
-              color: #94a3b8;
-              font-size: 10px;
-            }
-
-            @media print {
-              body {
-                padding: 15px;
-              }
-
-              .invoice {
-                page-break-inside: avoid;
-              }
-
-              @page {
-                size: A4;
-                margin: 12mm;
-              }
-            }
-          </style>
-        </head>
-
-        <body>
-          <div class="report-header">
-            <div>
-              <h1>
-                ${selected ? "Purchase Invoice" : "Purchase History Report"}
-              </h1>
-
-              <p>
-                ${
-                  selected
-                    ? "Individual supplier purchase record"
-                    : "Complete supplier purchase records"
-                }
-              </p>
-            </div>
-
-            <div class="report-date">
-              <strong>Steel Store</strong>
-              <br />
-              Printed: ${escapeHTML(new Date().toLocaleDateString("en-PK"))}
-            </div>
-          </div>
-
-          ${invoicesHTML}
-
-          <div class="footer">
-            ${
-              selected
-                ? "Individual Purchase Invoice"
-                : "Complete Purchase History Report"
-            }
-          </div>
-
-          <script>
-            window.onload = function () {
-              window.focus();
-              window.print();
-            };
-          </script>
-        </body>
-      </html>
-    `);
-
-    printWindow.document.close();
   };
 
-  // -----------------------------------
-  // INPUT HANDLERS
-  // -----------------------------------
+  const selectSupplier = (supplier) => {
+    setFormData((prev) => ({
+      ...prev,
+      supplierId: String(supplier.id),
+      supplier: supplier.name || "",
+      supplierPhone: supplier.phone || "",
+    }));
+
+    setSupplierSearch(supplier.name || "");
+    setShowSupplierOptions(false);
+  };
+
+  const filteredSupplierOptions = suppliers.filter((supplier) => {
+    const q = supplierSearch.toLowerCase().trim();
+
+    return (
+      !q ||
+      String(supplier.name || "")
+        .toLowerCase()
+        .includes(q) ||
+      String(supplier.phone || "")
+        .toLowerCase()
+        .includes(q)
+    );
+  });
+
+  const handleAddSupplier = (e) => {
+    e.preventDefault();
+
+    const name = supplierForm.name.trim();
+    const phone = supplierForm.phone.trim();
+
+    if (!name) return showAlert("Please enter supplier name.");
+
+    if (!phone) return showAlert("Please enter supplier phone number.");
+
+    const normalized = normalizePhone(phone);
+
+    const duplicatePhone = suppliers.find(
+      (s) => normalizePhone(s.phone) === normalized,
+    );
+
+    if (duplicatePhone) {
+      selectSupplier(duplicatePhone);
+
+      setShowSupplierModal(false);
+
+      setSupplierForm({
+        name: "",
+        phone: "",
+        email: "",
+        address: "",
+      });
+
+      showAlert(
+        `This phone number already belongs to ${duplicatePhone.name}. Existing supplier selected.`,
+      );
+
+      return;
+    }
+
+    const duplicateName = suppliers.find(
+      (s) => normalizeSupplier(s.name) === normalizeSupplier(name),
+    );
+
+    if (duplicateName) {
+      showAlert(
+        "A supplier with this name already exists. Please select the existing supplier or use a distinct name.",
+      );
+
+      return;
+    }
+
+    const newSupplier = {
+      id: `supplier-${Date.now()}`,
+      name,
+      phone,
+      email: supplierForm.email.trim(),
+      address: supplierForm.address.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    setSuppliers((prev) => [newSupplier, ...prev]);
+
+    selectSupplier(newSupplier);
+    setShowSupplierModal(false);
+
+    setSupplierForm({
+      name: "",
+      phone: "",
+      email: "",
+      address: "",
+    });
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    setFormData((previous) => ({
-      ...previous,
+    setFormData((prev) => ({
+      ...prev,
       [name]: value,
     }));
   };
 
   const handleItemChange = (index, field, value) => {
-    setFormData((previous) => {
-      const updatedItems = [...previous.items];
+    setFormData((prev) => {
+      const updatedItems = [...prev.items];
 
       updatedItems[index] = {
         ...updatedItems[index],
@@ -786,100 +517,67 @@ function Purchases() {
       };
 
       if (field === "productName") {
-        const existingProduct = products.find(
-          (product) =>
-            product.name?.toLowerCase().trim() === value.toLowerCase().trim(),
+        const existing = products.find(
+          (p) => p.name?.toLowerCase().trim() === value.toLowerCase().trim(),
         );
 
-        if (existingProduct) {
+        if (existing) {
           updatedItems[index] = {
             ...updatedItems[index],
-            productName: existingProduct.name,
-            category: existingProduct.category || "",
-            size: existingProduct.size || "",
-            unit: existingProduct.unit || "KG",
-            sellingPrice: existingProduct.sellingPrice || "",
-            minStock: existingProduct.minStock ?? 5,
+            productName: existing.name,
+            category: existing.category || "",
+            size: existing.size || "",
+            unit: existing.unit || "KG",
+            sellingPrice: existing.sellingPrice ?? "",
+            minStock: existing.minStock ?? 5,
           };
         }
       }
 
       return {
-        ...previous,
+        ...prev,
         items: updatedItems,
       };
     });
   };
 
-  // -----------------------------------
-  // ADD / REMOVE ITEMS
-  // -----------------------------------
-
-  const addItem = () => {
-    setFormData((previous) => ({
-      ...previous,
-      items: [
-        ...previous.items,
-        {
-          productName: "",
-          category: "",
-          size: "",
-          unit: "KG",
-          quantity: "",
-          rate: "",
-          sellingPrice: "",
-          minStock: 5,
-        },
-      ],
+  const addItem = () =>
+    setFormData((prev) => ({
+      ...prev,
+      items: [...prev.items, emptyItem()],
     }));
-  };
 
-  const removeItem = (index) => {
-    setFormData((previous) => ({
-      ...previous,
-      items: previous.items.filter((_, itemIndex) => itemIndex !== index),
+  const removeItem = (index) =>
+    setFormData((prev) => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== index),
     }));
-  };
-
-  // -----------------------------------
-  // OPEN PURCHASE MODAL
-  // -----------------------------------
 
   const openPurchaseModal = () => {
     setFormData(getInitialForm(generateInvoiceNumber(purchases)));
+    setSupplierSearch("");
+    setShowSupplierOptions(false);
     setShowModal(true);
   };
 
-  // -----------------------------------
-  // SAVE PURCHASE
-  // -----------------------------------
-
+  // Save purchase and update inventory.
   const handleSubmit = (e) => {
     e.preventDefault();
 
     const supplier = formData.supplier.trim();
     const invoice = formData.invoice.trim();
-    const normalizedSupplier = normalizeSupplier(supplier);
 
-    if (!supplier) {
-      alert("Please enter supplier name.");
-      return;
-    }
+    if (!formData.supplierId || !supplier)
+      return showAlert(
+        "Please select a supplier from the supplier list. You can add a new supplier if needed.",
+      );
 
-    if (!invoice) {
-      alert("Please enter invoice number.");
-      return;
-    }
+    if (!invoice) return showAlert("Please enter invoice number.");
 
-    if (!formData.date) {
-      alert("Please select purchase date.");
-      return;
-    }
+    if (!formData.date) return showAlert("Please select purchase date.");
 
-    if (!formData.items.length) {
-      alert("Please add at least one purchase item.");
-      return;
-    }
+    if (!formData.items.length)
+      return showAlert("Please add at least one purchase item.");
 
     const invalidItem = formData.items.find(
       (item) =>
@@ -896,78 +594,71 @@ function Purchases() {
         Number(item.minStock) < 0,
     );
 
-    if (invalidItem) {
-      alert(
+    if (invalidItem)
+      return showAlert(
         "Please enter valid product names, units, quantities and purchase rates.",
       );
-      return;
-    }
 
     if (
       formData.paid !== "" &&
       (!Number.isFinite(Number(formData.paid)) || Number(formData.paid) < 0)
-    ) {
-      alert("Please enter a valid payment amount.");
-      return;
-    }
+    )
+      return showAlert("Please enter a valid payment amount.");
 
-    if (purchaseTotal <= 0) {
-      alert("Purchase total must be greater than zero.");
-      return;
-    }
+    if (purchaseTotal <= 0)
+      return showAlert("Purchase total must be greater than zero.");
 
-    const duplicateInvoice = purchases.some(
-      (purchase) =>
-        purchase.invoice?.toLowerCase().trim() === invoice.toLowerCase(),
+    if (
+      purchases.some(
+        (p) => p.invoice?.toLowerCase().trim() === invoice.toLowerCase(),
+      )
+    )
+      return showAlert("This invoice number already exists.");
+
+    const supplierRecord = suppliers.find(
+      (s) => String(s.id) === String(formData.supplierId),
     );
 
-    if (duplicateInvoice) {
-      alert("This invoice number already exists.");
-      return;
-    }
-
-    // -----------------------------------
-    // PREPARE PURCHASE ITEMS
-    // -----------------------------------
+    if (!supplierRecord)
+      return showAlert(
+        "Selected supplier could not be found. Please select the supplier again.",
+      );
 
     const selectedItems = formData.items.map((item) => {
-      const existingProduct = products.find(
-        (product) =>
-          product.name?.toLowerCase().trim() ===
+      const existing = products.find(
+        (p) =>
+          p.name?.toLowerCase().trim() ===
           item.productName.toLowerCase().trim(),
       );
 
       return {
-        productId: existingProduct?.id || null,
+        productId: existing?.id || null,
         product: item.productName.trim(),
         category: item.category.trim(),
         size: item.size.trim(),
         quantity: Number(item.quantity),
         unit: item.unit.trim(),
         rate: Number(item.rate),
-
         sellingPrice:
           item.sellingPrice === ""
-            ? Number(existingProduct?.sellingPrice || 0)
+            ? Number(existing?.sellingPrice || 0)
             : Number(item.sellingPrice),
-
         minStock: Number(item.minStock || 0),
       };
     });
 
-    // -----------------------------------
-    // PAYMENT RECORD
-    // -----------------------------------
+    const advanceKey = `supplier:${supplierRecord.id}`;
 
-    const oldSupplierRecord = supplierAdvances[normalizedSupplier] || {
-      name: supplier,
-      balance: 0,
-      transactions: [],
-    };
+    const oldRecord = supplierAdvances[advanceKey] ||
+      supplierAdvances[normalizeSupplier(supplierRecord.name)] || {
+        name: supplierRecord.name,
+        balance: 0,
+        transactions: [],
+      };
 
-    const oldAdvanceBalance = Math.max(0, toNumber(oldSupplierRecord.balance));
+    const oldBalance = Math.max(0, toNumber(oldRecord.balance));
 
-    const appliedAdvance = Math.min(purchaseTotal, oldAdvanceBalance);
+    const appliedAdvance = Math.min(purchaseTotal, oldBalance);
 
     const amountAfterAdvance = Math.max(0, purchaseTotal - appliedAdvance);
 
@@ -975,41 +666,38 @@ function Purchases() {
 
     const extraAdvance = Math.max(0, cashPaid - amountAfterAdvance);
 
-    const settledAmount = appliedAdvance + appliedCash;
+    const settled = appliedAdvance + appliedCash;
 
-    const balance = Math.max(0, purchaseTotal - settledAmount);
+    const balance = Math.max(0, purchaseTotal - settled);
 
-    const status = getPaymentStatus(purchaseTotal, settledAmount);
+    const status = getPaymentStatus(purchaseTotal, settled);
 
     const purchaseId = Date.now();
+
     const createdAt = new Date().toISOString();
 
     const newPurchase = {
       id: purchaseId,
       invoice,
-      supplier,
+      supplierId: supplierRecord.id,
+      supplier: supplierRecord.name,
+      supplierPhone: supplierRecord.phone || "",
       date: formData.date,
       items: selectedItems,
       total: purchaseTotal,
-      paid: settledAmount,
+      paid: settled,
       balance,
       status,
-
       cashPaid,
       cashApplied: appliedCash,
       advanceApplied: appliedAdvance,
       advanceGenerated: extraAdvance,
-
       createdAt,
     };
 
-    // -----------------------------------
-    // UPDATE SUPPLIER ADVANCE LEDGER
-    // -----------------------------------
+    const transactions = [...(oldRecord.transactions || [])];
 
-    const transactions = [...(oldSupplierRecord.transactions || [])];
-
-    if (appliedAdvance > 0) {
+    if (appliedAdvance > 0)
       transactions.unshift({
         id: `advance-used-${purchaseId}`,
         type: "adjustment",
@@ -1018,9 +706,8 @@ function Purchases() {
         date: createdAt,
         note: `Advance adjusted against ${invoice}`,
       });
-    }
 
-    if (extraAdvance > 0) {
+    if (extraAdvance > 0)
       transactions.unshift({
         id: `advance-added-${purchaseId}`,
         type: "credit",
@@ -1029,67 +716,69 @@ function Purchases() {
         date: createdAt,
         note: "Extra payment saved as supplier advance",
       });
-    }
 
-    const updatedSupplierAdvances = {
+    const updatedAdvances = {
       ...supplierAdvances,
-      [normalizedSupplier]: {
-        name: supplier,
-        balance: Math.max(0, oldAdvanceBalance - appliedAdvance + extraAdvance),
+
+      [advanceKey]: {
+        ...oldRecord,
+        name: supplierRecord.name,
+        supplierId: supplierRecord.id,
+        balance: Math.max(0, oldBalance - appliedAdvance + extraAdvance),
         transactions,
       },
     };
 
-    // -----------------------------------
-    // UPDATE PRODUCT STOCK
-    // -----------------------------------
+    const oldNameKey = normalizeSupplier(supplierRecord.name);
+
+    if (oldNameKey !== advanceKey && updatedAdvances[oldNameKey])
+      delete updatedAdvances[oldNameKey];
 
     const updatedProducts = [...products];
+
     const stockActivities = [];
 
     selectedItems.forEach((item, index) => {
       const existingIndex = updatedProducts.findIndex(
-        (product) =>
-          product.name?.toLowerCase().trim() ===
-          item.product.toLowerCase().trim(),
+        (p) =>
+          p.name?.toLowerCase().trim() === item.product.toLowerCase().trim(),
       );
 
       if (existingIndex !== -1) {
-        const existingProduct = updatedProducts[existingIndex];
+        const existing = updatedProducts[existingIndex];
 
-        const previousStock = toNumber(existingProduct.stock);
+        const previousStock = toNumber(existing.stock);
+
         const newStock = previousStock + item.quantity;
-        const oldPurchasePrice = toNumber(existingProduct.purchasePrice);
+
+        const oldRate = toNumber(existing.purchasePrice);
 
         const weightedAverage =
           newStock > 0
-            ? (previousStock * oldPurchasePrice + item.quantity * item.rate) /
-              newStock
+            ? (previousStock * oldRate + item.quantity * item.rate) / newStock
             : item.rate;
 
         updatedProducts[existingIndex] = {
-          ...existingProduct,
+          ...existing,
           stock: newStock,
           purchasePrice: Number(weightedAverage.toFixed(2)),
-          ...(item.sellingPrice > 0 && {
-            sellingPrice: item.sellingPrice,
-          }),
+          ...(item.sellingPrice > 0 ? { sellingPrice: item.sellingPrice } : {}),
         };
+
+        item.productId = existing.id;
 
         stockActivities.push({
           id: `purchase-${purchaseId}-${index}`,
-          productId: existingProduct.id,
-          productName: existingProduct.name,
+          productId: existing.id,
+          productName: existing.name,
           type: "add",
           quantity: item.quantity,
           previousStock,
           newStock,
           unit: item.unit,
-          note: `Purchase from ${supplier} · Invoice ${invoice}`,
+          note: `Purchase from ${supplierRecord.name} · Invoice ${invoice}`,
           date: createdAt,
         });
-
-        selectedItems[index].productId = existingProduct.id;
       } else {
         const newProduct = {
           id: `product-${purchaseId}-${index}`,
@@ -1105,6 +794,8 @@ function Purchases() {
 
         updatedProducts.push(newProduct);
 
+        item.productId = newProduct.id;
+
         stockActivities.push({
           id: `purchase-${purchaseId}-${index}`,
           productId: newProduct.id,
@@ -1117,70 +808,373 @@ function Purchases() {
           note: `New product added through purchase · ${invoice}`,
           date: createdAt,
         });
-
-        selectedItems[index].productId = newProduct.id;
       }
     });
 
-    // -----------------------------------
-    // SAVE ALL UPDATES
-    // -----------------------------------
-
-    const updatedPurchases = [newPurchase, ...purchases];
-
     setProducts(updatedProducts);
-    setSupplierAdvances(updatedSupplierAdvances);
-    setPurchases(updatedPurchases);
+    setSupplierAdvances(updatedAdvances);
+    setPurchases((prev) => [newPurchase, ...prev]);
 
-    try {
-      const oldHistory = readLocalStorage(STOCK_HISTORY_KEY, []);
+    const oldHistory = readLocalStorage(STOCK_HISTORY_KEY, []);
 
-      localStorage.setItem(
-        STOCK_HISTORY_KEY,
-        JSON.stringify([...stockActivities, ...oldHistory]),
-      );
-    } catch (error) {
-      console.error("Stock history error:", error);
-    }
+    localStorage.setItem(
+      STOCK_HISTORY_KEY,
+      JSON.stringify([...stockActivities, ...oldHistory]),
+    );
 
     setCurrentPage(1);
     setShowModal(false);
 
-    setFormData(getInitialForm(generateInvoiceNumber(updatedPurchases)));
+    setFormData(
+      getInitialForm(generateInvoiceNumber([newPurchase, ...purchases])),
+    );
   };
 
-  // -----------------------------------
-  // STATUS STYLE
-  // -----------------------------------
+  const handleDeletePurchase = (purchase) => {
+    const confirmed = window.confirm(
+      `Are you sure you want to delete purchase ${purchase.invoice}?`,
+    );
 
-  const getStatusStyle = (status) => {
-    switch (status) {
-      case "Paid":
-        return "bg-emerald-50 text-emerald-700 border-emerald-100";
-      case "Partial":
-        return "bg-amber-50 text-amber-700 border-amber-100";
-      default:
-        return "bg-red-50 text-red-600 border-red-100";
+    if (!confirmed) return;
+
+    const updatedProducts = [...products];
+
+    (purchase.items || []).forEach((item) => {
+      const productIndex = updatedProducts.findIndex((p) => {
+        if (item.productId) {
+          return String(p.id) === String(item.productId);
+        }
+
+        return (
+          p.name?.toLowerCase().trim() === item.product?.toLowerCase().trim()
+        );
+      });
+
+      if (productIndex !== -1) {
+        const product = updatedProducts[productIndex];
+
+        updatedProducts[productIndex] = {
+          ...product,
+          stock: Math.max(0, toNumber(product.stock) - toNumber(item.quantity)),
+        };
+      }
+    });
+
+    setProducts(updatedProducts);
+
+    const advanceKey = `supplier:${purchase.supplierId}`;
+
+    setSupplierAdvances((prev) => {
+      const current = prev[advanceKey];
+
+      if (!current) return prev;
+
+      const restoredAdvance =
+        toNumber(current.balance) +
+        toNumber(purchase.advanceApplied) -
+        toNumber(purchase.advanceGenerated);
+
+      return {
+        ...prev,
+        [advanceKey]: {
+          ...current,
+          balance: Math.max(0, restoredAdvance),
+          transactions: (current.transactions || []).filter(
+            (transaction) => transaction.invoice !== purchase.invoice,
+          ),
+        },
+      };
+    });
+
+    setPurchases((prev) => prev.filter((p) => p.id !== purchase.id));
+
+    const history = readLocalStorage(STOCK_HISTORY_KEY, []);
+
+    localStorage.setItem(
+      STOCK_HISTORY_KEY,
+      JSON.stringify(
+        history.filter(
+          (entry) => !String(entry.note || "").includes(purchase.invoice),
+        ),
+      ),
+    );
+
+    if (selectedPurchase?.id === purchase.id) {
+      setSelectedPurchase(null);
     }
   };
 
-  // -----------------------------------
-  // STAT CARDS
-  // -----------------------------------
+  const handlePrintPurchase = (selected = null) => {
+    const list = selected ? [selected] : purchases;
+
+    if (!list.length)
+      return showAlert("No purchase records available to print.");
+
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
+
+    if (!printWindow)
+      return showAlert("Please allow pop-ups to print purchase invoices.");
+
+    const invoicesHTML = list
+      .map((purchase) => {
+        const items = Array.isArray(purchase.items) ? purchase.items : [];
+
+        const total = toNumber(purchase.total);
+        const paid = toNumber(purchase.paid);
+        const balance = getPurchaseBalance(purchase);
+
+        const rows = items
+          .map(
+            (item, index) => `
+              <tr>
+                <td>${index + 1}</td>
+                <td>
+                  <strong>${escapeHTML(item.product)}</strong>
+                  ${
+                    item.size
+                      ? `<br><small>${escapeHTML(item.size)}</small>`
+                      : ""
+                  }
+                </td>
+                <td>${escapeHTML(item.category || "-")}</td>
+                <td>
+                  ${toNumber(item.quantity).toLocaleString("en-PK")}
+                  ${escapeHTML(item.unit || "")}
+                </td>
+                <td>${formatCurrency(item.rate)}</td>
+                <td>
+                  ${formatCurrency(
+                    toNumber(item.quantity) * toNumber(item.rate),
+                  )}
+                </td>
+              </tr>
+            `,
+          )
+          .join("");
+
+        const cashPaidValue = toNumber(purchase.cashPaid ?? purchase.paid);
+
+        const cashAppliedValue = toNumber(
+          purchase.cashApplied ??
+            Math.max(0, paid - toNumber(purchase.advanceApplied)),
+        );
+
+        return `
+          <section class="invoice">
+            <div class="head">
+              <div>
+                <h2>Purchase Invoice</h2>
+                <b>${escapeHTML(purchase.invoice)}</b>
+              </div>
+              <span class="status">
+                ${escapeHTML(purchase.status || getPaymentStatus(total, paid))}
+              </span>
+            </div>
+
+            <div class="details">
+              <div>
+                <small>Supplier</small>
+                <strong>${escapeHTML(purchase.supplier)}</strong>
+              </div>
+              <div>
+                <small>Phone</small>
+                <strong>${escapeHTML(purchase.supplierPhone || "-")}</strong>
+              </div>
+              <div>
+                <small>Purchase Date</small>
+                <strong>${escapeHTML(purchase.date)}</strong>
+              </div>
+            </div>
+
+            <h3>Purchased Products</h3>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Quantity</th>
+                  <th>Rate</th>
+                  <th>Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rows || '<tr><td colspan="6">No items</td></tr>'}
+              </tbody>
+            </table>
+
+            <div class="summary">
+              <p><span>Total Purchase</span><b>${formatCurrency(total)}</b></p>
+              <p><span>Previous Advance Used</span><b>${formatCurrency(purchase.advanceApplied)}</b></p>
+              <p><span>Actual Cash Paid</span><b>${formatCurrency(cashPaidValue)}</b></p>
+              <p><span>Cash Applied to Invoice</span><b>${formatCurrency(cashAppliedValue)}</b></p>
+
+              ${
+                toNumber(purchase.advanceGenerated) > 0
+                  ? `<p><span>Extra Payment Saved as Advance</span><b>${formatCurrency(purchase.advanceGenerated)}</b></p>`
+                  : ""
+              }
+
+              <p class="settled"><span>Total Settled</span><b>${formatCurrency(paid)}</b></p>
+              <p class="balance"><span>Remaining Balance</span><b>${formatCurrency(balance)}</b></p>
+            </div>
+          </section>
+        `;
+      })
+      .join("");
+
+    printWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="UTF-8">
+          <title>Purchase Report</title>
+          <style>
+            * { box-sizing: border-box; }
+
+            body {
+              font: 12px Arial, sans-serif;
+              color: #1e293b;
+              padding: 25px;
+            }
+
+            .report {
+              display: flex;
+              justify-content: space-between;
+              border-bottom: 2px solid #2563eb;
+              padding-bottom: 15px;
+              margin-bottom: 25px;
+            }
+
+            .invoice {
+              padding-bottom: 25px;
+              margin-bottom: 30px;
+              border-bottom: 2px dashed #cbd5e1;
+              page-break-inside: avoid;
+            }
+
+            .head {
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            }
+
+            .head h2 { margin: 0 0 5px; }
+            .head b { color: #2563eb; }
+
+            .status {
+              background: #e0f2fe;
+              padding: 7px 12px;
+              border-radius: 20px;
+            }
+
+            .details {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 15px;
+              background: #f8fafc;
+              padding: 14px;
+              margin: 18px 0;
+            }
+
+            .details div {
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+            }
+
+            .details small { color: #64748b; }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+            }
+
+            th {
+              background: #f1f5f9;
+              text-align: left;
+            }
+
+            th, td {
+              padding: 10px;
+              border-bottom: 1px solid #e2e8f0;
+            }
+
+            .summary {
+              max-width: 380px;
+              margin: 20px 0 0 auto;
+              background: #f8fafc;
+              padding: 15px;
+            }
+
+            .summary p {
+              display: flex;
+              justify-content: space-between;
+              gap: 12px;
+            }
+
+            .settled {
+              border-top: 1px solid #cbd5e1;
+              padding-top: 10px;
+              color: #15803d;
+            }
+
+            .balance {
+              border-top: 1px solid #cbd5e1;
+              padding-top: 10px;
+              color: #b45309;
+              font-weight: bold;
+            }
+
+            @page {
+              size: A4;
+              margin: 12mm;
+            }
+
+            @media print {
+              body { padding: 0; }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="report">
+            <div>
+              <h1>${selected ? "Purchase Invoice" : "Purchase History Report"}</h1>
+              <p>Steel Store · Supplier purchase records</p>
+            </div>
+            <div>Printed: ${escapeHTML(new Date().toLocaleDateString("en-PK"))}</div>
+          </div>
+
+          ${invoicesHTML}
+
+          <script>
+            window.onload = () => {
+              window.focus();
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+  };
 
   const statCards = [
     {
-      title: "Total Purchases",
-      value: stats.totalPurchases,
-      description: "All purchase invoices",
-      icon: ShoppingCart,
+      title: "Total Suppliers",
+      value: supplierGroups.length,
+      description: "Suppliers with purchase records",
+      icon: Users,
       color: "bg-blue-50 text-blue-600",
       filter: "All",
     },
     {
       title: "Purchase Amount",
       value: formatCurrency(stats.totalAmount),
-      description: "Total purchase value",
+      description: `${stats.totalPurchases} total invoices`,
       icon: Wallet,
       color: "bg-indigo-50 text-indigo-600",
       filter: "All",
@@ -1203,345 +1197,379 @@ function Purchases() {
     },
   ];
 
-  const handleCardClick = (filter) => {
-    setStatusFilter(filter);
-    setSearch("");
-    setCurrentPage(1);
-  };
-
-  // -----------------------------------
-  // UI
-  // -----------------------------------
-
   return (
-    <div className="space-y-6">
-      {/* HEADER */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-600">
-            <ShoppingCart size={17} />
-            Purchase Management
-          </div>
+    <div
+      className="space-y-6"
+      onWheelCapture={(e) => {
+        if (
+          e.target instanceof HTMLInputElement &&
+          e.target.type === "number"
+        ) {
+          e.preventDefault();
+          e.target.blur();
+        }
+      }}
+    >
+      {/* SUPPLIER DETAILS VIEW */}
 
-          <h1 className="text-2xl font-bold text-slate-800">
-            Purchases Management
-          </h1>
+      {selectedSupplierGroup ? (
+        <SupplierPurchaseDetails
+          supplier={selectedSupplierGroup}
+          purchases={selectedSupplierGroup.purchases}
+          onBack={() => setSelectedSupplierGroup(null)}
+          onViewPurchase={setSelectedPurchase}
+          onPrintPurchase={handlePrintPurchase}
+          onDeletePurchase={handleDeletePurchase}
+        />
+      ) : (
+        <>
+          {/* PAGE HEADER */}
 
-          <p className="mt-1 text-sm text-slate-500">
-            Manage purchases, suppliers, invoices and stock receiving.
-          </p>
-        </div>
-
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            type="button"
-            onClick={() => handlePrintPurchase()}
-            disabled={purchases.length === 0}
-            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Printer size={18} />
-            Print All Purchases
-          </button>
-
-          <button
-            onClick={openPurchaseModal}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-          >
-            <Plus size={18} />
-            New Purchase
-          </button>
-        </div>
-      </div>
-
-      {/* STAT CARDS */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((card, index) => {
-          const Icon = card.icon;
-
-          const active =
-            statusFilter === card.filter && (card.filter !== "All" || !search);
-
-          return (
-            <motion.button
-              key={card.title}
-              type="button"
-              onClick={() => handleCardClick(card.filter)}
-              whileHover={{ y: -4 }}
-              whileTap={{ scale: 0.98 }}
-              initial={{ opacity: 0, y: 15 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.07 }}
-              className={`rounded-2xl border bg-white p-5 text-left shadow-sm transition ${
-                active
-                  ? "border-blue-400 ring-2 ring-blue-100"
-                  : "border-slate-100 hover:border-blue-200 hover:shadow-md"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium text-slate-500">
-                    {card.title}
-                  </p>
-
-                  <h2 className="mt-3 break-words text-xl font-bold text-slate-800">
-                    {card.value}
-                  </h2>
-
-                  <p className="mt-1 text-xs text-slate-400">
-                    {card.description}
-                  </p>
-                </div>
-
-                <div className={`rounded-xl p-3 ${card.color}`}>
-                  <Icon size={22} />
-                </div>
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-blue-600">
+                <ShoppingCart size={17} />
+                Purchase Management
               </div>
 
-              <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-                <span className="text-xs font-semibold text-blue-600">
-                  View Records
-                </span>
-                <ArrowUpRight size={16} className="text-blue-500" />
-              </div>
-            </motion.button>
-          );
-        })}
-      </div>
+              <h1 className="text-2xl font-bold text-slate-800">
+                Purchases Management
+              </h1>
 
-      {/* PURCHASE HISTORY */}
-      <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center">
-          <div>
-            <h2 className="text-lg font-bold text-slate-800">
-              Purchase History
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              View all supplier purchase invoices.
-            </p>
-          </div>
-
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative">
-              <Search
-                size={17}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-
-              <input
-                type="text"
-                placeholder="Search invoice, supplier, product..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-blue-500 sm:w-64"
-              />
+              <p className="mt-1 text-sm text-slate-500">
+                Manage supplier purchases, invoices and stock receiving.
+              </p>
             </div>
 
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
-            >
-              <option value="All">All Status</option>
-              <option value="Paid">Paid</option>
-              <option value="Partial">Partial</option>
-              <option value="Unpaid">Unpaid</option>
-              <option value="Pending">Pending Payments</option>
-            </select>
-
-            {hasActiveFilters && (
+            <div className="flex flex-col gap-2 sm:flex-row">
               <button
-                onClick={clearAllFilters}
-                className="whitespace-nowrap rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100"
+                type="button"
+                onClick={() => handlePrintPurchase()}
+                disabled={!purchases.length}
+                className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Clear All
+                <Printer size={18} />
+                Print All Purchases
               </button>
-            )}
+
+              <button
+                onClick={openPurchaseModal}
+                className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+              >
+                <Plus size={18} />
+                New Purchase
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* TABLE */}
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] text-left">
-            <thead className="bg-slate-50">
-              <tr className="text-xs uppercase tracking-wider text-slate-500">
-                <th className="px-6 py-4">Invoice</th>
-                <th className="px-6 py-4">Supplier</th>
-                <th className="px-6 py-4">Date</th>
-                <th className="px-6 py-4">Items</th>
-                <th className="px-6 py-4">Total Amount</th>
-                <th className="px-6 py-4">Paid</th>
-                <th className="px-6 py-4">Balance</th>
-                <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Actions</th>
-              </tr>
-            </thead>
+          {/* STAT CARDS */}
 
-            <tbody className="divide-y divide-slate-100">
-              {paginatedPurchases.length > 0 ? (
-                paginatedPurchases.map((purchase) => (
-                  <tr
-                    key={purchase.id}
-                    className="transition hover:bg-slate-50"
-                  >
-                    <td className="px-6 py-4">
-                      <span className="font-semibold text-blue-600">
-                        {purchase.invoice}
-                      </span>
-                    </td>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {statCards.map((card, index) => {
+              const Icon = card.icon;
 
-                    <td className="px-6 py-4">
-                      <p className="font-medium text-slate-700">
-                        {purchase.supplier}
+              const active =
+                statusFilter === card.filter &&
+                (card.filter !== "All" || !search);
+
+              return (
+                <motion.button
+                  key={card.title}
+                  type="button"
+                  onClick={() => {
+                    setStatusFilter(card.filter);
+                    setSearch("");
+                    setCurrentPage(1);
+                  }}
+                  whileHover={{ y: -4 }}
+                  whileTap={{ scale: 0.98 }}
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.07 }}
+                  className={`rounded-2xl border bg-white p-5 text-left shadow-sm transition ${
+                    active
+                      ? "border-blue-400 ring-2 ring-blue-100"
+                      : "border-slate-100 hover:border-blue-200 hover:shadow-md"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-500">
+                        {card.title}
                       </p>
-                    </td>
 
-                    <td className="px-6 py-4 text-sm text-slate-500">
-                      {purchase.date}
-                    </td>
+                      <h2 className="mt-3 break-words text-xl font-bold text-slate-800">
+                        {card.value}
+                      </h2>
 
-                    <td className="px-6 py-4 text-sm text-slate-600">
-                      {purchase.items?.length || 0} Product(s)
-                    </td>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {card.description}
+                      </p>
+                    </div>
 
-                    <td className="px-6 py-4 font-semibold text-slate-800">
-                      {formatCurrency(purchase.total)}
-                    </td>
+                    <div className={`rounded-xl p-3 ${card.color}`}>
+                      <Icon size={22} />
+                    </div>
+                  </div>
 
-                    <td className="px-6 py-4 font-medium text-emerald-600">
-                      {formatCurrency(purchase.paid)}
-                    </td>
+                  <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+                    <span className="text-xs font-semibold text-blue-600">
+                      View Suppliers
+                    </span>
 
-                    <td className="px-6 py-4 font-medium text-red-500">
-                      {formatCurrency(getPurchaseBalance(purchase))}
-                    </td>
+                    <ArrowUpRight size={16} className="text-blue-500" />
+                  </div>
+                </motion.button>
+              );
+            })}
+          </div>
 
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${getStatusStyle(purchase.status)}`}
-                      >
-                        {purchase.status}
-                      </span>
-                    </td>
+          {/* SUPPLIER OVERVIEW */}
 
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handlePrintPurchase(purchase)}
-                          title="Print This Purchase"
-                          className="rounded-lg bg-emerald-50 p-2 text-emerald-600 transition hover:bg-emerald-100"
-                        >
-                          <Printer size={17} />
-                        </button>
+          <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+            <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">
+                  Supplier Purchase Overview
+                </h2>
 
-                        <button
-                          type="button"
-                          onClick={() => setSelectedPurchase(purchase)}
-                          title="View Purchase Details"
-                          className="rounded-lg bg-blue-50 p-2 text-blue-600 transition hover:bg-blue-100"
-                        >
-                          <Eye size={17} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="9" className="px-6 py-14 text-center">
-                    <ShoppingCart
-                      size={38}
-                      className="mx-auto mb-3 text-slate-300"
-                    />
+                <p className="mt-1 text-sm text-slate-500">
+                  Each supplier is listed once. Open a supplier to view all
+                  purchase invoices.
+                </p>
+              </div>
 
-                    <p className="font-semibold text-slate-700">
-                      No Purchase Records Found
-                    </p>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <div className="relative">
+                  <Search
+                    size={17}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
 
-                    <p className="mt-1 text-sm text-slate-400">
-                      Create a new purchase or change your filters.
-                    </p>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search supplier or phone..."
+                    className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-blue-500 sm:w-64"
+                  />
+                </div>
 
-        {/* PAGINATION */}
-        <div className="flex flex-col justify-between gap-4 border-t border-slate-100 p-4 lg:flex-row lg:items-center">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <div className="flex items-center gap-2">
-              <span className="whitespace-nowrap text-xs font-medium text-slate-500">
-                Rows per page
-              </span>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-blue-500"
+                >
+                  <option value="All">All Suppliers</option>
+                  <option value="Paid">Fully Paid</option>
+                  <option value="Partial">Partially Paid</option>
+                  <option value="Unpaid">Unpaid</option>
+                  <option value="Pending">Has Pending Balance</option>
+                </select>
 
-              <select
-                value={itemsPerPage}
-                onChange={(e) => setItemsPerPage(Number(e.target.value))}
-                className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-50"
-              >
-                {[6, 8, 12, 24, 48].map((size) => (
-                  <option key={size} value={size}>
-                    {size}
-                  </option>
-                ))}
-              </select>
+                {hasActiveFilters && (
+                  <button
+                    onClick={() => {
+                      setSearch("");
+                      setStatusFilter("All");
+                      setCurrentPage(1);
+                    }}
+                    className="whitespace-nowrap rounded-xl border border-red-100 bg-red-50 px-4 py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-100"
+                  >
+                    Clear All
+                  </button>
+                )}
+              </div>
             </div>
 
-            <p className="text-xs font-medium text-slate-500">
-              Showing{" "}
-              <span className="font-bold text-slate-700">
-                {filteredPurchases.length === 0 ? 0 : startIndex + 1}–{endIndex}
-              </span>{" "}
-              of{" "}
-              <span className="font-bold text-slate-700">
-                {filteredPurchases.length}
-              </span>{" "}
-              purchases
-            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1050px] text-left">
+                <thead className="bg-slate-50">
+                  <tr className="text-xs uppercase tracking-wider text-slate-500">
+                    {[
+                      "Supplier",
+                      "Purchases",
+                      "Last Purchase",
+                      "Total Amount",
+                      "Paid",
+                      "Pending",
+                      "Status",
+                      "Action",
+                    ].map((heading) => (
+                      <th key={heading} className="px-6 py-4">
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedSuppliers.length ? (
+                    paginatedSuppliers.map((supplier) => (
+                      <tr
+                        key={supplier.key}
+                        onClick={() => setSelectedSupplierGroup(supplier)}
+                        className="cursor-pointer transition hover:bg-blue-50/50"
+                      >
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                              <Truck size={19} />
+                            </div>
+
+                            <div>
+                              <p className="font-semibold text-slate-800">
+                                {supplier.name}
+                              </p>
+
+                              <p className="mt-1 text-xs text-slate-400">
+                                {supplier.phone || "No phone number"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        <td className="px-6 py-4">
+                          <span className="inline-flex rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-semibold text-blue-700">
+                            {supplier.invoiceCount} Invoice(s)
+                          </span>
+                        </td>
+
+                        <td className="px-6 py-4 text-sm text-slate-500">
+                          {supplier.lastPurchaseDate || "-"}
+                        </td>
+
+                        <td className="px-6 py-4 font-semibold text-slate-800">
+                          {formatCurrency(supplier.totalAmount)}
+                        </td>
+
+                        <td className="px-6 py-4 font-medium text-emerald-600">
+                          {formatCurrency(supplier.totalPaid)}
+                        </td>
+
+                        <td className="px-6 py-4 font-medium text-red-500">
+                          {formatCurrency(supplier.totalPending)}
+                        </td>
+
+                        <td className="px-6 py-4">
+                          <span
+                            className={`inline-flex rounded-full border px-3 py-1.5 text-xs font-semibold ${getStatusStyle(
+                              supplier.status,
+                            )}`}
+                          >
+                            {supplier.status}
+                          </span>
+                        </td>
+
+                        <td className="px-6 py-4">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedSupplierGroup(supplier);
+                            }}
+                            className="inline-flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-600 transition hover:bg-blue-100"
+                          >
+                            <Eye size={15} />
+                            View Details
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="8" className="px-6 py-14 text-center">
+                        <Truck
+                          size={38}
+                          className="mx-auto mb-3 text-slate-300"
+                        />
+
+                        <p className="font-semibold text-slate-700">
+                          No Suppliers Found
+                        </p>
+
+                        <p className="mt-1 text-sm text-slate-400">
+                          Create a purchase or change your filters.
+                        </p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* PAGINATION */}
+
+            <div className="flex flex-col justify-between gap-4 border-t border-slate-100 p-4 lg:flex-row lg:items-center">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex items-center gap-2">
+                  <span className="whitespace-nowrap text-xs font-medium text-slate-500">
+                    Rows per page
+                  </span>
+
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => setItemsPerPage(Number(e.target.value))}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-blue-400"
+                  >
+                    {[6, 8, 12, 24, 48].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <p className="text-xs font-medium text-slate-500">
+                  Showing{" "}
+                  <b className="text-slate-700">
+                    {filteredSuppliers.length ? startIndex + 1 : 0}–{endIndex}
+                  </b>{" "}
+                  of{" "}
+                  <b className="text-slate-700">{filteredSuppliers.length}</b>{" "}
+                  suppliers
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1 || !totalPages}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-blue-50 disabled:opacity-40"
+                >
+                  <ChevronLeft size={17} />
+                </button>
+
+                {pageNumbers.map((page) => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-xs font-semibold ${
+                      currentPage === page
+                        ? "border-blue-600 bg-blue-600 text-white"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-blue-50"
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+
+                <button
+                  onClick={() =>
+                    setCurrentPage((p) => Math.min(totalPages, p + 1))
+                  }
+                  disabled={currentPage >= totalPages || !totalPages}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-blue-50 disabled:opacity-40"
+                >
+                  <ChevronRight size={17} />
+                </button>
+              </div>
+            </div>
           </div>
+        </>
+      )}
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-              disabled={currentPage === 1 || totalPages === 0}
-              title="Previous Page"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ChevronLeft size={17} />
-            </button>
+      {/* CREATE PURCHASE */}
 
-            {pageNumbers.map((page) => (
-              <button
-                key={page}
-                onClick={() => setCurrentPage(page)}
-                className={`flex h-9 min-w-9 items-center justify-center rounded-lg border px-3 text-xs font-semibold transition ${
-                  currentPage === page
-                    ? "border-blue-600 bg-blue-600 text-white shadow-sm shadow-blue-200"
-                    : "border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-                }`}
-              >
-                {page}
-              </button>
-            ))}
-
-            <button
-              onClick={() =>
-                setCurrentPage((page) => Math.min(totalPages, page + 1))
-              }
-              disabled={currentPage >= totalPages || totalPages === 0}
-              title="Next Page"
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ChevronRight size={17} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* NEW PURCHASE MODAL */}
       <AnimatePresence>
         {showModal && (
           <Modal onClose={() => setShowModal(false)}>
@@ -1552,11 +1580,12 @@ function Purchases() {
                 </h2>
 
                 <p className="mt-1 text-sm text-slate-500">
-                  Enter supplier and purchased product details.
+                  Select supplier and enter purchased product details.
                 </p>
               </div>
 
               <button
+                type="button"
                 onClick={() => setShowModal(false)}
                 className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
               >
@@ -1566,7 +1595,8 @@ function Purchases() {
 
             <form onSubmit={handleSubmit}>
               <div className="max-h-[70vh] space-y-6 overflow-y-auto p-5">
-                {/* SUPPLIER DETAILS */}
+                {/* SUPPLIER INFORMATION */}
+
                 <section>
                   <h3 className="mb-4 flex items-center gap-2 font-semibold text-slate-800">
                     <Truck size={18} className="text-blue-600" />
@@ -1574,24 +1604,118 @@ function Purchases() {
                   </h3>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
+                    <div className="relative">
                       <label className="mb-2 block text-sm font-medium text-slate-700">
-                        Supplier Name *
+                        Supplier *
                       </label>
 
-                      <input
-                        type="text"
-                        name="supplier"
-                        value={formData.supplier}
-                        onChange={handleChange}
-                        placeholder="Enter any supplier name"
-                        className="purchase-input"
-                        required
-                      />
+                      <div className="relative">
+                        <Search
+                          size={17}
+                          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                        />
 
-                      <p className="mt-1 text-xs text-slate-400">
-                        You can enter any supplier name.
-                      </p>
+                        <input
+                          value={supplierSearch}
+                          onFocus={() => setShowSupplierOptions(true)}
+                          onChange={(e) => {
+                            setSupplierSearch(e.target.value);
+                            setShowSupplierOptions(true);
+
+                            if (formData.supplierId) {
+                              setFormData((p) => ({
+                                ...p,
+                                supplierId: "",
+                                supplier: "",
+                                supplierPhone: "",
+                              }));
+                            }
+                          }}
+                          placeholder="Search supplier by name or phone"
+                          className="purchase-input"
+                          style={{ paddingLeft: "42px" }}
+                          autoComplete="off"
+                        />
+                      </div>
+
+                      {showSupplierOptions && (
+                        <div className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                          {filteredSupplierOptions.length ? (
+                            filteredSupplierOptions.map((supplier) => (
+                              <button
+                                key={supplier.id}
+                                type="button"
+                                onClick={() => selectSupplier(supplier)}
+                                className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left hover:bg-blue-50"
+                              >
+                                <span>
+                                  <span className="block text-sm font-semibold text-slate-700">
+                                    {supplier.name}
+                                  </span>
+
+                                  <span className="mt-0.5 block text-xs text-slate-400">
+                                    {supplier.phone || "No phone saved"}
+                                  </span>
+                                </span>
+
+                                {String(supplier.id) ===
+                                  String(formData.supplierId) && (
+                                  <Check size={16} className="text-blue-600" />
+                                )}
+                              </button>
+                            ))
+                          ) : (
+                            <p className="px-3 py-3 text-sm text-slate-500">
+                              No matching supplier found.
+                            </p>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setShowSupplierOptions(false);
+
+                              setSupplierForm((p) => ({
+                                ...p,
+                                name: supplierSearch.trim(),
+                              }));
+
+                              setShowSupplierModal(true);
+                            }}
+                            className="mt-1 flex w-full items-center gap-2 border-t border-slate-100 px-3 py-3 text-sm font-semibold text-blue-600 hover:bg-blue-50"
+                          >
+                            <UserPlus size={16} />
+                            Add New Supplier
+                          </button>
+                        </div>
+                      )}
+
+                      {selectedSupplier && (
+                        <p className="mt-1 text-xs font-medium text-emerald-600">
+                          Selected: {selectedSupplier.name} ·{" "}
+                          {selectedSupplier.phone || "No phone"}
+                        </p>
+                      )}
+
+                      {!selectedSupplier && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSupplierForm({
+                              name: supplierSearch.trim(),
+                              phone: "",
+                              email: "",
+                              address: "",
+                            });
+
+                            setShowSupplierModal(true);
+                          }}
+                          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                        >
+                          <Plus size={14} />
+                          Add new supplier
+                        </button>
+                      )}
                     </div>
 
                     <div>
@@ -1600,11 +1724,9 @@ function Purchases() {
                       </label>
 
                       <input
-                        type="text"
                         name="invoice"
                         value={formData.invoice}
                         onChange={handleChange}
-                        placeholder="Enter invoice number"
                         className="purchase-input"
                         required
                       />
@@ -1624,10 +1746,25 @@ function Purchases() {
                         required
                       />
                     </div>
+
+                    {selectedSupplier && (
+                      <div>
+                        <label className="mb-2 block text-sm font-medium text-slate-700">
+                          Supplier Phone
+                        </label>
+
+                        <input
+                          value={selectedSupplier.phone || ""}
+                          readOnly
+                          className="purchase-input bg-slate-50"
+                        />
+                      </div>
+                    )}
                   </div>
                 </section>
 
                 {/* PURCHASE ITEMS */}
+
                 <section>
                   <div className="mb-4 flex items-center justify-between">
                     <h3 className="flex items-center gap-2 font-semibold text-slate-800">
@@ -1638,7 +1775,7 @@ function Purchases() {
                     <button
                       type="button"
                       onClick={addItem}
-                      className="flex items-center gap-1.5 text-sm font-semibold text-blue-600 hover:text-blue-700"
+                      className="flex items-center gap-1.5 text-sm font-semibold text-blue-600"
                     >
                       <Plus size={17} />
                       Add Item
@@ -1647,9 +1784,9 @@ function Purchases() {
 
                   <div className="space-y-4">
                     {formData.items.map((item, index) => {
-                      const existingProduct = products.find(
-                        (product) =>
-                          product.name?.toLowerCase().trim() ===
+                      const existing = products.find(
+                        (p) =>
+                          p.name?.toLowerCase().trim() ===
                           item.productName.toLowerCase().trim(),
                       );
 
@@ -1667,26 +1804,28 @@ function Purchases() {
                                 Item {index + 1}
                               </p>
 
-                              {existingProduct ? (
-                                <p className="mt-1 text-xs font-medium text-emerald-600">
-                                  Existing product · Stock will increase
-                                </p>
-                              ) : item.productName.trim() ? (
-                                <p className="mt-1 text-xs font-medium text-blue-600">
-                                  New product · Will be added to inventory
-                                </p>
-                              ) : (
-                                <p className="mt-1 text-xs text-slate-400">
-                                  Enter product details below
-                                </p>
-                              )}
+                              <p
+                                className={`mt-1 text-xs font-medium ${
+                                  existing
+                                    ? "text-emerald-600"
+                                    : item.productName.trim()
+                                      ? "text-blue-600"
+                                      : "text-slate-400"
+                                }`}
+                              >
+                                {existing
+                                  ? "Existing product · Stock will increase"
+                                  : item.productName.trim()
+                                    ? "New product · Will be added to inventory"
+                                    : "Enter product details below"}
+                              </p>
                             </div>
 
                             {formData.items.length > 1 && (
                               <button
                                 type="button"
                                 onClick={() => removeItem(index)}
-                                className="rounded-lg p-2 text-red-500 transition hover:bg-red-50"
+                                className="rounded-lg p-2 text-red-500 hover:bg-red-50"
                               >
                                 <Trash2 size={17} />
                               </button>
@@ -1694,14 +1833,12 @@ function Purchases() {
                           </div>
 
                           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            {/* PRODUCT NAME */}
                             <div className="sm:col-span-2">
                               <label className="mb-2 block text-sm font-medium text-slate-700">
                                 Product Name *
                               </label>
 
                               <input
-                                type="text"
                                 list="inventory-products"
                                 value={item.productName}
                                 onChange={(e) =>
@@ -1717,67 +1854,62 @@ function Purchases() {
                               />
 
                               <datalist id="inventory-products">
-                                {products.map((product) => (
-                                  <option
-                                    key={product.id}
-                                    value={product.name}
-                                  />
+                                {products.map((p) => (
+                                  <option key={p.id} value={p.name} />
                                 ))}
                               </datalist>
                             </div>
 
-                            {!existingProduct && (
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700">
-                                  Category
-                                </label>
+                            {!existing && (
+                              <>
+                                <div>
+                                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                                    Category
+                                  </label>
 
-                                <input
-                                  type="text"
-                                  list="purchase-categories"
-                                  value={item.category}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      index,
-                                      "category",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="Enter category"
-                                  className="purchase-input"
-                                />
+                                  <input
+                                    list="purchase-categories"
+                                    value={item.category}
+                                    onChange={(e) =>
+                                      handleItemChange(
+                                        index,
+                                        "category",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="Enter category"
+                                    className="purchase-input"
+                                  />
 
-                                <datalist id="purchase-categories">
-                                  {categories.map((category) => (
-                                    <option
-                                      key={category.id ?? category.name}
-                                      value={category.name}
-                                    />
-                                  ))}
-                                </datalist>
-                              </div>
-                            )}
+                                  <datalist id="purchase-categories">
+                                    {categories.map((c) => (
+                                      <option
+                                        key={c.id ?? c.name}
+                                        value={c.name}
+                                      />
+                                    ))}
+                                  </datalist>
+                                </div>
 
-                            {!existingProduct && (
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-slate-700">
-                                  Size / Specification
-                                </label>
+                                <div>
+                                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                                    Size / Specification
+                                  </label>
 
-                                <input
-                                  type="text"
-                                  value={item.size}
-                                  onChange={(e) =>
-                                    handleItemChange(
-                                      index,
-                                      "size",
-                                      e.target.value,
-                                    )
-                                  }
-                                  placeholder="e.g. 10mm, 2 inch, 4x8"
-                                  className="purchase-input"
-                                />
-                              </div>
+                                  <input
+                                    value={item.size}
+                                    onChange={(e) =>
+                                      handleItemChange(
+                                        index,
+                                        "size",
+                                        e.target.value,
+                                      )
+                                    }
+                                    placeholder="e.g. 10mm, 2 inch, 4x8"
+                                    className="purchase-input"
+                                  />
+                                </div>
+                              </>
                             )}
 
                             <div>
@@ -1786,7 +1918,6 @@ function Purchases() {
                               </label>
 
                               <input
-                                type="text"
                                 value={item.unit}
                                 onChange={(e) =>
                                   handleItemChange(
@@ -1795,7 +1926,7 @@ function Purchases() {
                                     e.target.value,
                                   )
                                 }
-                                placeholder="KG, Piece, Ton, Sheet..."
+                                placeholder="KG, Piece, Ton..."
                                 className="purchase-input"
                                 required
                               />
@@ -1865,15 +1996,15 @@ function Purchases() {
                                   )
                                 }
                                 placeholder={
-                                  existingProduct
-                                    ? `Current: ${existingProduct.sellingPrice || 0}`
+                                  existing
+                                    ? `Current: ${existing.sellingPrice || 0}`
                                     : "Enter selling price"
                                 }
                                 className="purchase-input"
                               />
                             </div>
 
-                            {!existingProduct && (
+                            {!existing && (
                               <div>
                                 <label className="mb-2 block text-sm font-medium text-slate-700">
                                   Minimum Stock Alert
@@ -1912,14 +2043,15 @@ function Purchases() {
                   </div>
                 </section>
 
-                {/* PAYMENT DETAILS */}
+                {/* PAYMENT INFORMATION */}
+
                 <section>
                   <h3 className="mb-4 flex items-center gap-2 font-semibold text-slate-800">
                     <Wallet size={18} className="text-blue-600" />
                     Payment Information
                   </h3>
 
-                  {formData.supplier.trim() && (
+                  {formData.supplierId && (
                     <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
                       <div className="flex items-center justify-between gap-3">
                         <div>
@@ -1928,7 +2060,7 @@ function Purchases() {
                           </p>
 
                           <p className="mt-1 text-xs text-blue-600">
-                            Existing advance for this supplier.
+                            Existing advance for {formData.supplier}.
                           </p>
                         </div>
 
@@ -1946,33 +2078,33 @@ function Purchases() {
                     </div>
                   )}
 
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-slate-700">
-                      Paid Amount (Rs.)
-                    </label>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">
+                    Paid Amount (Rs.)
+                  </label>
 
-                    <input
-                      type="number"
-                      name="paid"
-                      min="0"
-                      step="any"
-                      value={formData.paid}
-                      onChange={handleChange}
-                      placeholder="Enter payment amount"
-                      className="purchase-input paid-amount-input"
-                    />
+                  <input
+                    type="number"
+                    name="paid"
+                    min="0"
+                    step="any"
+                    value={formData.paid}
+                    onChange={handleChange}
+                    placeholder="Enter actual cash paid"
+                    className="purchase-input paid-amount-input"
+                  />
 
-                    <p className="mt-1 text-xs text-slate-400">
-                      Enter the actual cash amount paid to the supplier. Extra
-                      payment will become advance.
-                    </p>
-                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
+                    Enter actual cash paid. Any extra payment will be saved as
+                    supplier advance.
+                  </p>
                 </section>
 
                 {/* PURCHASE SUMMARY */}
+
                 <section className="rounded-2xl bg-slate-900 p-5 text-white">
                   <div className="mb-4 flex items-center justify-between">
                     <h3 className="font-semibold">Purchase Summary</h3>
+
                     <FileText size={20} className="text-blue-400" />
                   </div>
 
@@ -2042,24 +2174,22 @@ function Purchases() {
                   </div>
                 </section>
 
-                {/* NOTICE */}
                 <div className="flex gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4">
                   <AlertCircle size={19} className="shrink-0 text-blue-600" />
 
                   <p className="text-xs leading-5 text-blue-700">
-                    Saving this purchase will automatically increase inventory
-                    stock. New product names will be added to your product list.
-                    Supplier advances will also be adjusted automatically.
+                    Saving this purchase automatically increases inventory
+                    stock. New product names are added to your product list, and
+                    the selected supplier's advance is adjusted automatically.
                   </p>
                 </div>
               </div>
 
-              {/* FOOTER */}
               <div className="flex flex-col-reverse justify-end gap-3 border-t border-slate-100 p-5 sm:flex-row">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
                 >
                   Cancel
                 </button>
@@ -2067,7 +2197,7 @@ function Purchases() {
                 <button
                   type="submit"
                   disabled={purchaseTotal <= 0}
-                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                   <CheckCircle2 size={18} />
                   Save Purchase & Update Stock
@@ -2078,7 +2208,132 @@ function Purchases() {
         )}
       </AnimatePresence>
 
-      {/* PURCHASE DETAILS MODAL */}
+      {/* QUICK ADD SUPPLIER */}
+
+      <AnimatePresence>
+        {showSupplierModal && (
+          <Modal onClose={() => setShowSupplierModal(false)} narrow>
+            <div className="flex items-center justify-between border-b border-slate-100 p-5">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">
+                  Add New Supplier
+                </h2>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  Create supplier and attach it to this purchase.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowSupplierModal(false)}
+                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddSupplier} className="space-y-4 p-5">
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Supplier Name *
+                </label>
+
+                <input
+                  autoFocus
+                  value={supplierForm.name}
+                  onChange={(e) =>
+                    setSupplierForm((p) => ({
+                      ...p,
+                      name: e.target.value,
+                    }))
+                  }
+                  className="purchase-input"
+                  placeholder="Enter supplier name"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Phone Number *
+                </label>
+
+                <input
+                  value={supplierForm.phone}
+                  onChange={(e) =>
+                    setSupplierForm((p) => ({
+                      ...p,
+                      phone: e.target.value,
+                    }))
+                  }
+                  className="purchase-input"
+                  placeholder="03XX-XXXXXXX"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Email (Optional)
+                </label>
+
+                <input
+                  type="email"
+                  value={supplierForm.email}
+                  onChange={(e) =>
+                    setSupplierForm((p) => ({
+                      ...p,
+                      email: e.target.value,
+                    }))
+                  }
+                  className="purchase-input"
+                  placeholder="supplier@example.com"
+                />
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">
+                  Address (Optional)
+                </label>
+
+                <input
+                  value={supplierForm.address}
+                  onChange={(e) =>
+                    setSupplierForm((p) => ({
+                      ...p,
+                      address: e.target.value,
+                    }))
+                  }
+                  className="purchase-input"
+                  placeholder="Supplier address"
+                />
+              </div>
+
+              <div className="flex flex-col-reverse justify-end gap-3 border-t border-slate-100 pt-4 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => setShowSupplierModal(false)}
+                  className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+                >
+                  <UserPlus size={17} />
+                  Save & Select Supplier
+                </button>
+              </div>
+            </form>
+          </Modal>
+        )}
+      </AnimatePresence>
+
+      {/* PURCHASE DETAILS */}
+
       <AnimatePresence>
         {selectedPurchase && (
           <Modal onClose={() => setSelectedPurchase(null)}>
@@ -2102,7 +2357,6 @@ function Purchases() {
             </div>
 
             <div className="space-y-5 p-5">
-              {/* SUPPLIER DETAILS */}
               <div className="rounded-xl bg-slate-50 p-4">
                 <div className="mb-3 flex items-center gap-2">
                   <Truck size={18} className="text-blue-600" />
@@ -2115,15 +2369,20 @@ function Purchases() {
                 <div className="space-y-3 text-sm">
                   <div className="flex justify-between gap-3">
                     <span className="text-slate-500">Supplier</span>
-
                     <span className="text-right font-semibold text-slate-800">
                       {selectedPurchase.supplier}
                     </span>
                   </div>
 
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-500">Phone</span>
+                    <span className="font-medium text-slate-800">
+                      {selectedPurchase.supplierPhone || "-"}
+                    </span>
+                  </div>
+
                   <div className="flex justify-between">
                     <span className="text-slate-500">Invoice</span>
-
                     <span className="font-medium text-slate-800">
                       {selectedPurchase.invoice}
                     </span>
@@ -2131,7 +2390,6 @@ function Purchases() {
 
                   <div className="flex justify-between">
                     <span className="text-slate-500">Purchase Date</span>
-
                     <span className="font-medium text-slate-800">
                       {selectedPurchase.date}
                     </span>
@@ -2142,20 +2400,28 @@ function Purchases() {
 
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                        selectedPurchase.status === "Paid"
+                        getPaymentStatus(
+                          toNumber(selectedPurchase.total),
+                          toNumber(selectedPurchase.paid),
+                        ) === "Paid"
                           ? "bg-emerald-50 text-emerald-700"
-                          : selectedPurchase.status === "Partial"
+                          : getPaymentStatus(
+                                toNumber(selectedPurchase.total),
+                                toNumber(selectedPurchase.paid),
+                              ) === "Partial"
                             ? "bg-amber-50 text-amber-700"
                             : "bg-red-50 text-red-600"
                       }`}
                     >
-                      {selectedPurchase.status}
+                      {getPaymentStatus(
+                        toNumber(selectedPurchase.total),
+                        toNumber(selectedPurchase.paid),
+                      )}
                     </span>
                   </div>
                 </div>
               </div>
 
-              {/* PRODUCTS */}
               <div>
                 <h3 className="mb-3 flex items-center gap-2 font-semibold text-slate-800">
                   <Package size={18} className="text-blue-600" />
@@ -2163,9 +2429,9 @@ function Purchases() {
                 </h3>
 
                 <div className="space-y-3">
-                  {(selectedPurchase.items || []).map((item, index) => (
+                  {(selectedPurchase.items || []).map((item, i) => (
                     <div
-                      key={index}
+                      key={i}
                       className="rounded-xl border border-slate-100 p-4"
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -2189,7 +2455,6 @@ function Purchases() {
                 </div>
               </div>
 
-              {/* PAYMENT SUMMARY */}
               <div className="space-y-3 rounded-xl bg-slate-900 p-5 text-sm text-white">
                 <div className="flex justify-between">
                   <span className="text-slate-300">Total Amount</span>
@@ -2198,7 +2463,6 @@ function Purchases() {
 
                 <div className="flex justify-between">
                   <span className="text-slate-300">Previous Advance Used</span>
-
                   <strong className="text-blue-300">
                     {formatCurrency(selectedPurchase.advanceApplied || 0)}
                   </strong>
@@ -2206,7 +2470,6 @@ function Purchases() {
 
                 <div className="flex justify-between">
                   <span className="text-slate-300">Actual Cash Paid</span>
-
                   <strong className="text-emerald-400">
                     {formatCurrency(
                       selectedPurchase.cashPaid ?? selectedPurchase.paid,
@@ -2218,7 +2481,6 @@ function Purchases() {
                   <span className="text-slate-300">
                     Cash Applied to Invoice
                   </span>
-
                   <strong>
                     {formatCurrency(
                       selectedPurchase.cashApplied ??
@@ -2260,11 +2522,10 @@ function Purchases() {
                 </div>
               </div>
 
-              {/* PRINT BUTTON */}
               <button
                 type="button"
                 onClick={() => handlePrintPurchase(selectedPurchase)}
-                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-700"
               >
                 <Printer size={18} />
                 Print This Purchase
@@ -2274,7 +2535,50 @@ function Purchases() {
         )}
       </AnimatePresence>
 
+      {/* CENTERED ALERT */}
+
+      <AnimatePresence>
+        {alertMessage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+            onClick={() => setAlertMessage("")}
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 15, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 15, scale: 0.96 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl"
+            >
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-50 text-amber-600">
+                <AlertCircle size={28} />
+              </div>
+
+              <h3 className="text-lg font-bold text-slate-800">
+                Attention Required
+              </h3>
+
+              <p className="mt-2 text-sm leading-6 text-slate-500">
+                {alertMessage}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setAlertMessage("")}
+                className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Okay, Got It
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* INPUT STYLES */}
+
       <style>{`
         .purchase-input {
           width: 100%;
@@ -2285,26 +2589,25 @@ function Purchases() {
           font-size: 14px;
           color: #334155;
           outline: none;
-          transition: all 0.2s;
+          transition: all .2s;
         }
 
         .purchase-input:focus {
           border-color: #3b82f6;
-          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+          box-shadow: 0 0 0 3px rgba(59,130,246,.1);
         }
 
         .purchase-input::placeholder {
           color: #94a3b8;
         }
 
-        /* Remove number spinner only from Paid Amount */
-        .paid-amount-input::-webkit-inner-spin-button,
-        .paid-amount-input::-webkit-outer-spin-button {
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
           -webkit-appearance: none;
           margin: 0;
         }
 
-        .paid-amount-input {
+        input[type="number"] {
           -moz-appearance: textfield;
           appearance: textfield;
         }
@@ -2313,30 +2616,26 @@ function Purchases() {
   );
 }
 
-// -----------------------------------
-// REUSABLE MODAL
-// -----------------------------------
-
-const Modal = ({ children, onClose }) => {
-  return (
+const Modal = ({ children, onClose, narrow = false }) => (
+  <motion.div
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    onClick={onClose}
+    className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm"
+  >
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      onClick={onClose}
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/50 p-4 backdrop-blur-sm"
+      initial={{ opacity: 0, y: 20, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.97 }}
+      onClick={(e) => e.stopPropagation()}
+      className={`my-auto w-full ${
+        narrow ? "max-w-lg" : "max-w-3xl"
+      } overflow-visible rounded-2xl bg-white shadow-2xl`}
     >
-      <motion.div
-        initial={{ opacity: 0, y: 20, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 20, scale: 0.97 }}
-        onClick={(e) => e.stopPropagation()}
-        className="my-auto w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl"
-      >
-        {children}
-      </motion.div>
+      {children}
     </motion.div>
-  );
-};
+  </motion.div>
+);
 
 export default Purchases;

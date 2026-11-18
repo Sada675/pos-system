@@ -15,6 +15,8 @@ import {
   FolderOpen,
   ChevronRight,
   ChevronLeft,
+  AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 
 const colors = {
@@ -38,6 +40,14 @@ function Categories() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
+
+  // Shared warning and delete confirmation modals (same as POS)
+  const [alertMessage, setAlertMessage] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+
+  const showAlert = (message) => {
+    setAlertMessage(String(message));
+  };
 
   // Pagination States
   const [currentPage, setCurrentPage] = useState(1);
@@ -155,7 +165,7 @@ function Categories() {
     );
 
     if (duplicate) {
-      alert("This category already exists!");
+      showAlert("This category already exists!");
       return;
     }
 
@@ -231,19 +241,26 @@ function Categories() {
     );
 
     if (assignedProducts.length > 0) {
-      alert(
+      showAlert(
         `This category has ${assignedProducts.length} products. Please move or delete those products first.`,
       );
       return;
     }
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${category.name}"?`,
+    setDeleteConfirmation({
+      id,
+      name: category.name,
+    });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteConfirmation) return;
+
+    setCategories((previous) =>
+      previous.filter((item) => item.id !== deleteConfirmation.id),
     );
 
-    if (!confirmed) return;
-
-    setCategories((previous) => previous.filter((item) => item.id !== id));
+    setDeleteConfirmation(null);
   };
 
   return (
@@ -693,6 +710,102 @@ function Categories() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* WARNING MODAL - SAME DESIGN AS POS */}
+
+      <AnimatePresence>
+        {alertMessage && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              transition={{ duration: 0.2 }}
+              role="alertdialog"
+              aria-modal="true"
+              className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl"
+            >
+              <div className="px-6 pt-7 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 ring-8 ring-amber-50/60">
+                  <AlertCircle size={34} strokeWidth={2} />
+                </div>
+
+                <h2 className="mt-5 text-xl font-bold text-slate-800">
+                  Attention Required
+                </h2>
+
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-500">
+                  {alertMessage}
+                </p>
+              </div>
+
+              <div className="p-6 pt-5">
+                <button
+                  type="button"
+                  onClick={() => setAlertMessage("")}
+                  className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 active:scale-[0.98]"
+                >
+                  Okay, Got It
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DELETE CONFIRMATION MODAL - SAME CENTERED DESIGN */}
+
+      <AnimatePresence>
+        {deleteConfirmation && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              transition={{ duration: 0.2 }}
+              role="alertdialog"
+              aria-modal="true"
+              className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl"
+            >
+              <div className="px-6 pt-7 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 ring-8 ring-amber-50/60">
+                  <AlertTriangle size={34} strokeWidth={2} />
+                </div>
+
+                <h2 className="mt-5 text-xl font-bold text-slate-800">
+                  Delete Category?
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Are you sure you want to delete{" "}
+                  <span className="font-semibold text-slate-700">
+                    "{deleteConfirmation.name}"
+                  </span>
+                  ? This action cannot be undone.
+                </p>
+              </div>
+
+              <div className="flex gap-3 p-6 pt-5">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmation(null)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-bold text-white shadow-lg shadow-red-200 transition hover:bg-red-700 active:scale-[0.98]"
+                >
+                  Yes, Delete
+                </button>
+              </div>
             </motion.div>
           </div>
         )}
