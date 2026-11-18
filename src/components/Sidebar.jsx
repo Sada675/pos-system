@@ -20,7 +20,7 @@ import { motion } from "framer-motion";
 
 const menuItems = [
   { name: "Dashboard", icon: LayoutDashboard, path: "/" },
-  { name: "Point of Sale", icon: ShoppingCart, path: "/pos" },
+  { name: "Sale", icon: ShoppingCart, path: "/pos" },
   { name: "Products", icon: Package, path: "/products" },
   { name: "Categories", icon: Layers, path: "/categories" },
   { name: "Inventory", icon: Warehouse, path: "/inventory" },

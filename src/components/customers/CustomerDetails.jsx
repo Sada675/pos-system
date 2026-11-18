@@ -5,7 +5,6 @@ import {
   Receipt,
   ArrowLeft,
   Printer,
-  CalendarDays,
   CreditCard,
   MapPin,
   Mail,
@@ -147,7 +146,9 @@ function CustomerDetails({ customer, sales = [], onBack }) {
     .filter((sale) => {
       const customerPhone = normalizePhone(customer.phone);
       const salePhone = normalizePhone(sale.customerPhone);
+
       if (customerPhone) return salePhone === customerPhone;
+
       return (
         !salePhone &&
         normalizeName(customer.name) === normalizeName(sale.customerName)
@@ -162,15 +163,19 @@ function CustomerDetails({ customer, sales = [], onBack }) {
   const summary = {
     customerSales,
     totalOrders: customerSales.length,
+
     totalPurchases: customerSales.reduce(
       (t, sale) => t + Number(sale.grandTotal || 0),
       0,
     ),
+
     totalPaid: customerSales.reduce((t, sale) => t + Number(sale.paid || 0), 0),
+
     outstanding: customerSales.reduce(
       (t, sale) => t + Number(sale.balance || 0),
       0,
     ),
+
     totalItems: customerSales.reduce(
       (t, sale) =>
         t +
@@ -180,6 +185,7 @@ function CustomerDetails({ customer, sales = [], onBack }) {
         ),
       0,
     ),
+
     lastPurchase:
       customerSales[0]?.saleDate || customerSales[0]?.createdAt || null,
   };
@@ -224,7 +230,16 @@ function CustomerDetails({ customer, sales = [], onBack }) {
 
   const latestSale = customerSales[0];
 
-  const handlePrintHistory = () => {
+  // PRINT ALL PURCHASES OR A SINGLE INVOICE
+
+  const handlePrintHistory = (selectedSale = null) => {
+    const salesToPrint = selectedSale ? [selectedSale] : customerSales;
+
+    if (salesToPrint.length === 0) {
+      alert("No purchase history available to print.");
+      return;
+    }
+
     const printWindow = window.open("", "_blank", "width=1000,height=800");
 
     if (!printWindow) {
@@ -232,16 +247,32 @@ function CustomerDetails({ customer, sales = [], onBack }) {
       return;
     }
 
-    const invoicesHTML = customerSales
+    const invoicesHTML = salesToPrint
       .map((sale, index) => {
         const items = Array.isArray(sale.items) ? sale.items : [];
+
+        const itemSubtotal = items.reduce(
+          (sum, item) =>
+            sum +
+            Number(
+              item.total ??
+                Number(item.price || 0) * Number(item.quantity || 0),
+            ),
+          0,
+        );
+
+        const subtotal = Number(sale.subtotal ?? itemSubtotal);
+        const discount = Number(sale.discount || 0);
+        const grandTotal = Number(sale.grandTotal ?? subtotal - discount);
+        const paid = Number(sale.paid || 0);
+        const balance = Number(sale.balance ?? Math.max(grandTotal - paid, 0));
 
         const itemsHTML = items
           .map(
             (item) => `
               <tr>
                 <td>${escapeHTML(item.name || "Product")}</td>
-                <td>${escapeHTML(item.category || "-")}</td>
+                <td>${escapeHTML(item.category || item.size || "-")}</td>
                 <td>${Number(item.quantity || 0)}</td>
                 <td>${formatCurrency(item.price)}</td>
                 <td>
@@ -257,6 +288,7 @@ function CustomerDetails({ customer, sales = [], onBack }) {
 
         return `
           <section class="invoice">
+
             <div class="invoice-header">
               <div>
                 <h3>
@@ -264,13 +296,14 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                     sale.invoiceNumber || `Order ${index + 1}`,
                   )}
                 </h3>
+
                 <p>
                   ${escapeHTML(formatDateTime(sale.saleDate || sale.createdAt))}
                 </p>
               </div>
 
-              <strong class="status">
-                ${Number(sale.balance || 0) > 0 ? "Payment Pending" : "Paid"}
+              <strong class="status ${balance > 0 ? "pending" : "paid"}">
+                ${balance > 0 ? "Payment Pending" : "Paid"}
               </strong>
             </div>
 
@@ -294,13 +327,37 @@ function CustomerDetails({ customer, sales = [], onBack }) {
             </table>
 
             <div class="totals">
-              <p>Subtotal <strong>${formatCurrency(sale.subtotal)}</strong></p>
-              <p>Discount <strong>${formatCurrency(sale.discount)}</strong></p>
-              <p>Grand Total <strong>${formatCurrency(sale.grandTotal)}</strong></p>
-              <p>Paid <strong>${formatCurrency(sale.paid)}</strong></p>
-              <p>Balance <strong>${formatCurrency(sale.balance)}</strong></p>
-              <p>Payment Method <strong>${escapeHTML(sale.paymentMethod || "N/A")}</strong></p>
+              <p>
+                Subtotal
+                <strong>${formatCurrency(subtotal)}</strong>
+              </p>
+
+              <p>
+                Discount
+                <strong>${formatCurrency(discount)}</strong>
+              </p>
+
+              <p class="grand-total">
+                Grand Total
+                <strong>${formatCurrency(grandTotal)}</strong>
+              </p>
+
+              <p>
+                Paid
+                <strong>${formatCurrency(paid)}</strong>
+              </p>
+
+              <p>
+                Balance
+                <strong>${formatCurrency(balance)}</strong>
+              </p>
+
+              <p>
+                Payment Method
+                <strong>${escapeHTML(sale.paymentMethod || "N/A")}</strong>
+              </p>
             </div>
+
           </section>
         `;
       })
@@ -310,10 +367,15 @@ function CustomerDetails({ customer, sales = [], onBack }) {
       <!DOCTYPE html>
       <html>
         <head>
-          <title>Purchase History - ${escapeHTML(customer.name)}</title>
+          <title>
+            ${selectedSale ? "Purchase Invoice" : "Purchase History"} -
+            ${escapeHTML(customer.name)}
+          </title>
 
           <style>
-            * { box-sizing: border-box; }
+            * {
+              box-sizing: border-box;
+            }
 
             body {
               font-family: Arial, sans-serif;
@@ -325,15 +387,30 @@ function CustomerDetails({ customer, sales = [], onBack }) {
             .header {
               display: flex;
               justify-content: space-between;
+              align-items: flex-start;
               border-bottom: 2px solid #2563eb;
               padding-bottom: 18px;
               margin-bottom: 20px;
             }
 
-            h1 { margin: 0; font-size: 24px; }
-            h2 { font-size: 18px; }
-            h3 { margin: 0; font-size: 16px; }
-            p { margin: 7px 0; font-size: 12px; }
+            h1 {
+              margin: 0;
+              font-size: 24px;
+            }
+
+            h2 {
+              font-size: 18px;
+            }
+
+            h3 {
+              margin: 0;
+              font-size: 16px;
+            }
+
+            p {
+              margin: 7px 0;
+              font-size: 12px;
+            }
 
             .customer-info {
               padding: 18px;
@@ -371,12 +448,20 @@ function CustomerDetails({ customer, sales = [], onBack }) {
             .invoice-header {
               display: flex;
               justify-content: space-between;
+              align-items: flex-start;
               margin-bottom: 15px;
             }
 
             .status {
-              color: #15803d;
               font-size: 12px;
+            }
+
+            .status.paid {
+              color: #15803d;
+            }
+
+            .status.pending {
+              color: #ea580c;
             }
 
             table {
@@ -384,17 +469,21 @@ function CustomerDetails({ customer, sales = [], onBack }) {
               border-collapse: collapse;
             }
 
-            th, td {
+            th,
+            td {
               border: 1px solid #e2e8f0;
               padding: 9px;
               text-align: left;
               font-size: 12px;
             }
 
-            th { background: #f1f5f9; }
+            th {
+              background: #f1f5f9;
+            }
 
             .totals {
-              width: 260px;
+              width: 280px;
+              max-width: 100%;
               margin: 15px 0 0 auto;
             }
 
@@ -402,6 +491,13 @@ function CustomerDetails({ customer, sales = [], onBack }) {
               display: flex;
               justify-content: space-between;
               gap: 10px;
+            }
+
+            .grand-total {
+              border-top: 1px solid #cbd5e1;
+              padding-top: 9px;
+              font-size: 14px;
+              font-weight: bold;
             }
 
             .footer {
@@ -412,17 +508,55 @@ function CustomerDetails({ customer, sales = [], onBack }) {
             }
 
             @media print {
-              body { padding: 10px; }
-              .invoice { page-break-inside: avoid; }
+              body {
+                padding: 10px;
+              }
+
+              .invoice {
+                page-break-inside: avoid;
+              }
+            }
+
+            @media screen and (max-width: 600px) {
+              body {
+                padding: 12px;
+              }
+
+              .summary {
+                grid-template-columns: repeat(2, 1fr);
+              }
+
+              table {
+                font-size: 10px;
+              }
+
+              th,
+              td {
+                padding: 6px;
+              }
             }
           </style>
         </head>
 
         <body>
+
           <div class="header">
             <div>
-              <h1>Customer Purchase History</h1>
-              <p>Complete purchase report</p>
+              <h1>
+                ${
+                  selectedSale
+                    ? "Purchase Invoice"
+                    : "Customer Purchase History"
+                }
+              </h1>
+
+              <p>
+                ${
+                  selectedSale
+                    ? "Individual purchase record"
+                    : "Complete purchase report"
+                }
+              </p>
             </div>
 
             <div>
@@ -434,7 +568,10 @@ function CustomerDetails({ customer, sales = [], onBack }) {
           <div class="customer-info">
             <h2>Customer Information</h2>
 
-            <p><strong>Name:</strong> ${escapeHTML(customer.name)}</p>
+            <p>
+              <strong>Name:</strong>
+              ${escapeHTML(customer.name)}
+            </p>
 
             ${
               customer.phone?.trim()
@@ -455,34 +592,48 @@ function CustomerDetails({ customer, sales = [], onBack }) {
             }
           </div>
 
-          <div class="summary">
-            <div class="summary-card">
-              Total Orders
-              <strong>${summary.totalOrders}</strong>
-            </div>
+          ${
+            !selectedSale
+              ? `
+                <div class="summary">
 
-            <div class="summary-card">
-              Total Purchases
-              <strong>${formatCurrency(summary.totalPurchases)}</strong>
-            </div>
+                  <div class="summary-card">
+                    Total Orders
+                    <strong>${summary.totalOrders}</strong>
+                  </div>
 
-            <div class="summary-card">
-              Total Paid
-              <strong>${formatCurrency(summary.totalPaid)}</strong>
-            </div>
+                  <div class="summary-card">
+                    Total Purchases
+                    <strong>${formatCurrency(summary.totalPurchases)}</strong>
+                  </div>
 
-            <div class="summary-card">
-              Outstanding
-              <strong>${formatCurrency(summary.outstanding)}</strong>
-            </div>
-          </div>
+                  <div class="summary-card">
+                    Total Paid
+                    <strong>${formatCurrency(summary.totalPaid)}</strong>
+                  </div>
 
-          <h2>Purchase Invoices</h2>
+                  <div class="summary-card">
+                    Outstanding
+                    <strong>${formatCurrency(summary.outstanding)}</strong>
+                  </div>
 
-          ${invoicesHTML || "<p>No purchase history available.</p>"}
+                </div>
+              `
+              : ""
+          }
+
+          <h2>
+            ${selectedSale ? "Invoice Details" : "Purchase Invoices"}
+          </h2>
+
+          ${invoicesHTML}
 
           <div class="footer">
-            Customer Purchase History Report
+            ${
+              selectedSale
+                ? "Purchase Invoice"
+                : "Customer Purchase History Report"
+            }
           </div>
 
           <script>
@@ -490,6 +641,7 @@ function CustomerDetails({ customer, sales = [], onBack }) {
               window.print();
             };
           </script>
+
         </body>
       </html>
     `);
@@ -528,7 +680,7 @@ function CustomerDetails({ customer, sales = [], onBack }) {
         </div>
 
         <button
-          onClick={handlePrintHistory}
+          onClick={() => handlePrintHistory()}
           className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-blue-600 px-5 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:from-indigo-700 hover:to-blue-700"
         >
           <Printer size={17} />
@@ -888,6 +1040,7 @@ function CustomerDetails({ customer, sales = [], onBack }) {
         <div className="space-y-5 p-4 sm:p-6">
           {customerSales.map((sale, index) => {
             const items = Array.isArray(sale.items) ? sale.items : [];
+
             const itemSubtotal = items.reduce(
               (sum, item) =>
                 sum +
@@ -897,15 +1050,19 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                 ),
               0,
             );
+
             const subtotal = Number(sale.subtotal ?? itemSubtotal);
             const discount = Number(sale.discount || 0);
             const grandTotal = Number(sale.grandTotal ?? subtotal - discount);
             const paid = Number(sale.paid || 0);
+
             const balance = Number(
               sale.balance ?? Math.max(grandTotal - paid, 0),
             );
+
             const hasBalance = balance > 0;
             const isAlternate = index % 2 === 1;
+
             const theme = isAlternate
               ? {
                   accent: "text-orange-700",
@@ -942,10 +1099,12 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                 transition={{ delay: index * 0.045 }}
                 className="relative pl-4 sm:pl-6"
               >
-                {/* Timeline marker: makes every purchase look like a separate record */}
+                {/* TIMELINE MARKER */}
+
                 <div
                   className={`absolute bottom-0 left-0 top-0 w-1 rounded-full ${theme.rail}`}
                 />
+
                 <div
                   className={`absolute left-[-7px] top-7 flex h-8 w-8 items-center justify-center rounded-full border-4 border-white text-xs font-black text-white shadow-md ${theme.rail}`}
                 >
@@ -955,7 +1114,8 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                 <div
                   className={`overflow-hidden rounded-2xl border ${theme.border} bg-white shadow-[0_5px_20px_rgba(15,23,42,0.05)] transition duration-300 hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(15,23,42,0.10)]`}
                 >
-                  {/* Distinct invoice heading */}
+                  {/* INVOICE HEADER */}
+
                   <div
                     className={`border-b ${theme.divider} bg-gradient-to-r ${theme.header} p-4 sm:p-5`}
                   >
@@ -965,10 +1125,12 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                           className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl ${theme.badge}`}
                         >
                           <Receipt size={19} />
+
                           <span className="mt-0.5 text-[9px] font-black">
                             #{customerSales.length - index}
                           </span>
                         </div>
+
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
                             <span
@@ -976,57 +1138,84 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                             >
                               Purchase Record
                             </span>
+
                             <span className="text-xs font-semibold text-slate-400">
                               {formatDate(sale.saleDate || sale.createdAt)}
                             </span>
                           </div>
+
                           <h3 className="mt-1 truncate text-base font-extrabold text-slate-800 sm:text-lg">
                             Invoice #{sale.invoiceNumber || "N/A"}
                           </h3>
+
                           <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-500">
                             <Clock size={12} />
+
                             {formatDateTime(sale.saleDate || sale.createdAt)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between gap-4 rounded-xl border border-white/80 bg-white/80 px-4 py-3 shadow-sm sm:min-w-[190px] sm:justify-end">
-                        <div className="sm:text-right">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                            Invoice Total
-                          </p>
-                          <p
-                            className={`mt-0.5 text-xl font-black tracking-tight ${theme.accent}`}
+                      {/* INVOICE TOTAL + PRINT BUTTON */}
+
+                      <div className="flex flex-col gap-3 sm:items-end">
+                        <div className="flex items-center justify-between gap-4 rounded-xl border border-white/80 bg-white/80 px-4 py-3 shadow-sm sm:min-w-[190px] sm:justify-end">
+                          <div className="sm:text-right">
+                            <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                              Invoice Total
+                            </p>
+
+                            <p
+                              className={`mt-0.5 text-xl font-black tracking-tight ${theme.accent}`}
+                            >
+                              {formatCurrency(grandTotal)}
+                            </p>
+                          </div>
+
+                          <span
+                            className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[10px] font-extrabold ${
+                              hasBalance
+                                ? "bg-rose-50 text-rose-700"
+                                : "bg-emerald-50 text-emerald-700"
+                            }`}
                           >
-                            {formatCurrency(grandTotal)}
-                          </p>
+                            {hasBalance ? (
+                              <AlertCircle size={12} />
+                            ) : (
+                              <CheckCircle2 size={12} />
+                            )}
+
+                            {hasBalance ? "Due" : "Paid"}
+                          </span>
                         </div>
-                        <span
-                          className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1.5 text-[10px] font-extrabold ${hasBalance ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700"}`}
+
+                        <button
+                          type="button"
+                          onClick={() => handlePrintHistory(sale)}
+                          className="inline-flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-indigo-600 to-blue-600 px-4 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-slate-900"
                         >
-                          {hasBalance ? (
-                            <AlertCircle size={12} />
-                          ) : (
-                            <CheckCircle2 size={12} />
-                          )}
-                          {hasBalance ? "Due" : "Paid"}
-                        </span>
+                          <Printer size={15} />
+                          Print This Invoice
+                        </button>
                       </div>
                     </div>
                   </div>
 
-                  {/* Product details */}
+                  {/* PRODUCT DETAILS */}
+
                   <div className="p-4 sm:p-5">
                     <div className="mb-3 flex items-center justify-between">
                       <p className="text-xs font-extrabold uppercase tracking-wider text-slate-600">
                         Purchased Items
                       </p>
+
                       <span
                         className={`rounded-full px-2.5 py-1 text-[10px] font-bold ${theme.badge}`}
                       >
                         {items.length} {items.length === 1 ? "Item" : "Items"}
                       </span>
                     </div>
+
                     <div className="overflow-hidden rounded-xl border border-slate-100">
                       <div className="overflow-x-auto">
                         <table className="w-full min-w-[520px] text-left">
@@ -1037,22 +1226,28 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                               <th className="px-4 py-3">
                                 Product / Description
                               </th>
+
                               <th className="px-4 py-3 text-center">Qty</th>
+
                               <th className="px-4 py-3 text-right">
                                 Unit Price
                               </th>
+
                               <th className="px-4 py-3 text-right">
                                 Line Total
                               </th>
                             </tr>
                           </thead>
+
                           <tbody className="divide-y divide-slate-100">
                             {items.map((item, itemIndex) => {
                               const quantity = Number(item.quantity || 0);
                               const unitPrice = Number(item.price || 0);
+
                               const lineTotal = Number(
                                 item.total ?? unitPrice * quantity,
                               );
+
                               return (
                                 <tr
                                   key={item.id || itemIndex}
@@ -1065,10 +1260,12 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                                       >
                                         <Package size={15} />
                                       </div>
+
                                       <div className="min-w-0">
                                         <p className="truncate text-sm font-bold text-slate-700">
                                           {item.name || "Product"}
                                         </p>
+
                                         {(item.category || item.size) && (
                                           <p className="mt-0.5 text-[11px] text-slate-400">
                                             {item.category || item.size}
@@ -1077,20 +1274,24 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                                       </div>
                                     </div>
                                   </td>
+
                                   <td className="px-4 py-3 text-center">
                                     <span className="inline-flex min-w-8 justify-center rounded-md bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">
                                       {quantity}
                                     </span>
                                   </td>
+
                                   <td className="px-4 py-3 text-right text-xs font-medium text-slate-600">
                                     {formatCurrency(unitPrice)}
                                   </td>
+
                                   <td className="px-4 py-3 text-right text-sm font-extrabold text-slate-800">
                                     {formatCurrency(lineTotal)}
                                   </td>
                                 </tr>
                               );
                             })}
+
                             {items.length === 0 && (
                               <tr>
                                 <td
@@ -1106,63 +1307,81 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                       </div>
                     </div>
 
-                    {/* Financial breakdown */}
+                    {/* FINANCIAL BREAKDOWN */}
+
                     <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                         <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
                           Subtotal
                         </p>
+
                         <p className="mt-1 text-sm font-extrabold text-slate-700">
                           {formatCurrency(subtotal)}
                         </p>
                       </div>
+
                       <div className="rounded-xl border border-slate-100 bg-slate-50 p-3">
                         <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
                           Discount
                         </p>
+
                         <p className="mt-1 text-sm font-extrabold text-slate-700">
                           {formatCurrency(discount)}
                         </p>
                       </div>
+
                       <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-3">
                         <p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">
                           Paid Amount
                         </p>
+
                         <p className="mt-1 text-sm font-extrabold text-emerald-700">
                           {formatCurrency(paid)}
                         </p>
                       </div>
+
                       <div
-                        className={`rounded-xl border p-3 ${hasBalance ? "border-rose-100 bg-rose-50/70" : "border-emerald-100 bg-emerald-50/70"}`}
+                        className={`rounded-xl border p-3 ${
+                          hasBalance
+                            ? "border-rose-100 bg-rose-50/70"
+                            : "border-emerald-100 bg-emerald-50/70"
+                        }`}
                       >
                         <p
-                          className={`text-[10px] font-bold uppercase tracking-wide ${hasBalance ? "text-rose-600" : "text-emerald-600"}`}
+                          className={`text-[10px] font-bold uppercase tracking-wide ${
+                            hasBalance ? "text-rose-600" : "text-emerald-600"
+                          }`}
                         >
                           Remaining
                         </p>
+
                         <p
-                          className={`mt-1 text-sm font-extrabold ${hasBalance ? "text-rose-700" : "text-emerald-700"}`}
+                          className={`mt-1 text-sm font-extrabold ${
+                            hasBalance ? "text-rose-700" : "text-emerald-700"
+                          }`}
                         >
                           {formatCurrency(balance)}
                         </p>
                       </div>
                     </div>
 
-                    {/* Payment details footer */}
+                    {/* PAYMENT DETAILS FOOTER */}
+
                     <div
                       className={`mt-4 flex flex-col gap-2 border-t ${theme.divider} pt-4 sm:flex-row sm:items-center sm:justify-between`}
                     >
                       <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-500">
                         <span className="inline-flex items-center gap-1.5">
-                          <CreditCard size={14} className={theme.accent} />{" "}
-                          Payment:{" "}
+                          <CreditCard size={14} className={theme.accent} />
+                          Payment:
                           <strong className="text-slate-700">
                             {sale.paymentMethod || "N/A"}
                           </strong>
                         </span>
+
                         <span className="inline-flex items-center gap-1.5">
-                          <Package size={14} className={theme.accent} /> Total
-                          Qty:{" "}
+                          <Package size={14} className={theme.accent} />
+                          Total Qty:
                           <strong className="text-slate-700">
                             {items.reduce(
                               (sum, item) => sum + Number(item.quantity || 0),
@@ -1171,12 +1390,14 @@ function CustomerDetails({ customer, sales = [], onBack }) {
                           </strong>
                         </span>
                       </div>
+
                       <div
                         className={`flex items-center justify-between gap-4 rounded-lg px-3 py-2 ${theme.soft}`}
                       >
                         <span className="text-xs font-bold text-slate-600">
                           Grand Total
                         </span>
+
                         <span
                           className={`text-base font-black ${theme.accent}`}
                         >
@@ -1189,6 +1410,7 @@ function CustomerDetails({ customer, sales = [], onBack }) {
               </motion.div>
             );
           })}
+
           {/* EMPTY HISTORY */}
 
           {customerSales.length === 0 && (

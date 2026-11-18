@@ -8,7 +8,7 @@ function DashboardLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-slate-200">
       {/* Desktop Sidebar */}
       <div className="hidden lg:block">
         <Sidebar collapsed={collapsed} setCollapsed={setCollapsed} />

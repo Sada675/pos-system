@@ -19,6 +19,7 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  Printer,
 } from "lucide-react";
 
 const PURCHASES_KEY = "steel-store-purchases";
@@ -43,6 +44,19 @@ const normalizeSupplier = (supplier) =>
   String(supplier || "")
     .trim()
     .toLowerCase();
+
+const escapeHTML = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (character) => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;",
+    };
+
+    return entities[character];
+  });
 
 const getPurchaseBalance = (purchase) => {
   if (purchase.balance !== undefined && purchase.balance !== null) {
@@ -98,7 +112,6 @@ const getInitialForm = (invoice) => ({
   invoice: invoice || generateInvoiceNumber(),
   date: new Date().toISOString().split("T")[0],
   paid: "",
-  notes: "",
   items: [
     {
       productName: "",
@@ -306,6 +319,449 @@ function Purchases() {
       setCurrentPage(totalPages);
     }
   }, [currentPage, totalPages]);
+
+  // -----------------------------------
+  // PRINT PURCHASES
+  // -----------------------------------
+
+  const handlePrintPurchase = (selected = null) => {
+    const purchasesToPrint = selected ? [selected] : purchases;
+
+    if (!purchasesToPrint.length) {
+      alert("No purchase records available to print.");
+      return;
+    }
+
+    const printWindow = window.open("", "_blank", "width=1100,height=850");
+
+    if (!printWindow) {
+      alert("Please allow pop-ups to print purchase invoices.");
+      return;
+    }
+
+    const invoicesHTML = purchasesToPrint
+      .map((purchase) => {
+        const items = Array.isArray(purchase.items) ? purchase.items : [];
+
+        const total = toNumber(purchase.total);
+        const paid = toNumber(purchase.paid);
+        const balance = getPurchaseBalance(purchase);
+
+        const itemRows = items
+          .map((item, index) => {
+            const quantity = toNumber(item.quantity);
+            const rate = toNumber(item.rate);
+            const lineTotal = quantity * rate;
+
+            return `
+              <tr>
+                <td>${index + 1}</td>
+                <td>
+                  <strong>${escapeHTML(item.product)}</strong>
+                  ${
+                    item.size
+                      ? `<br/><small>${escapeHTML(item.size)}</small>`
+                      : ""
+                  }
+                </td>
+                <td>${escapeHTML(item.category || "-")}</td>
+                <td>${quantity.toLocaleString("en-PK")} ${escapeHTML(item.unit || "")}</td>
+                <td>${formatCurrency(rate)}</td>
+                <td>${formatCurrency(lineTotal)}</td>
+              </tr>
+            `;
+          })
+          .join("");
+
+        const actualCashPaid = toNumber(purchase.cashPaid ?? purchase.paid);
+
+        const cashApplied = toNumber(
+          purchase.cashApplied ??
+            Math.max(0, paid - toNumber(purchase.advanceApplied)),
+        );
+
+        const advanceApplied = toNumber(purchase.advanceApplied);
+        const advanceGenerated = toNumber(purchase.advanceGenerated);
+
+        return `
+          <section class="invoice">
+            <div class="invoice-header">
+              <div>
+                <h2>Purchase Invoice</h2>
+                <p class="invoice-number">${escapeHTML(purchase.invoice)}</p>
+              </div>
+
+              <div class="status ${
+                purchase.status === "Paid"
+                  ? "paid"
+                  : purchase.status === "Partial"
+                    ? "partial"
+                    : "unpaid"
+              }">
+                ${escapeHTML(purchase.status || "Unpaid")}
+              </div>
+            </div>
+
+            <div class="supplier-details">
+              <div>
+                <span>Supplier</span>
+                <strong>${escapeHTML(purchase.supplier)}</strong>
+              </div>
+
+              <div>
+                <span>Invoice Number</span>
+                <strong>${escapeHTML(purchase.invoice)}</strong>
+              </div>
+
+              <div>
+                <span>Purchase Date</span>
+                <strong>${escapeHTML(purchase.date)}</strong>
+              </div>
+            </div>
+
+            <h3>Purchased Products</h3>
+
+            <table>
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Quantity</th>
+                  <th>Purchase Rate</th>
+                  <th>Subtotal</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                ${itemRows || `<tr><td colspan="6">No items found.</td></tr>`}
+              </tbody>
+            </table>
+
+            <div class="payment-section">
+              <div class="payment-row">
+                <span>Total Purchase</span>
+                <strong>${formatCurrency(total)}</strong>
+              </div>
+
+              <div class="payment-row">
+                <span>Previous Advance Used</span>
+                <strong>${formatCurrency(advanceApplied)}</strong>
+              </div>
+
+              <div class="payment-row">
+                <span>Actual Cash Paid</span>
+                <strong>${formatCurrency(actualCashPaid)}</strong>
+              </div>
+
+              <div class="payment-row">
+                <span>Cash Applied to Invoice</span>
+                <strong>${formatCurrency(cashApplied)}</strong>
+              </div>
+
+              ${
+                advanceGenerated > 0
+                  ? `
+                    <div class="payment-row">
+                      <span>Extra Payment Saved as Advance</span>
+                      <strong>${formatCurrency(advanceGenerated)}</strong>
+                    </div>
+                  `
+                  : ""
+              }
+
+              <div class="payment-row settled">
+                <span>Total Settled</span>
+                <strong>${formatCurrency(paid)}</strong>
+              </div>
+
+              <div class="payment-row balance">
+                <span>Remaining Balance</span>
+                <strong>${formatCurrency(balance)}</strong>
+              </div>
+            </div>
+          </section>
+        `;
+      })
+      .join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>
+            ${selected ? "Purchase Invoice" : "All Purchase Invoices"}
+          </title>
+
+          <meta charset="UTF-8" />
+
+          <style>
+            * {
+              box-sizing: border-box;
+            }
+
+            body {
+              margin: 0;
+              padding: 30px;
+              font-family: Arial, sans-serif;
+              color: #1e293b;
+              background: #fff;
+              font-size: 12px;
+            }
+
+            .report-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              border-bottom: 2px solid #2563eb;
+              padding-bottom: 18px;
+              margin-bottom: 25px;
+            }
+
+            .report-header h1 {
+              margin: 0;
+              font-size: 25px;
+              color: #1e293b;
+            }
+
+            .report-header p {
+              margin: 6px 0 0;
+              color: #64748b;
+              font-size: 12px;
+            }
+
+            .report-date {
+              color: #64748b;
+              text-align: right;
+              font-size: 11px;
+            }
+
+            .invoice {
+              margin-bottom: 35px;
+              padding-bottom: 28px;
+              border-bottom: 2px dashed #cbd5e1;
+              page-break-inside: avoid;
+            }
+
+            .invoice:last-child {
+              border-bottom: none;
+            }
+
+            .invoice-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              margin-bottom: 18px;
+            }
+
+            .invoice-header h2 {
+              margin: 0;
+              font-size: 18px;
+            }
+
+            .invoice-number {
+              margin: 5px 0 0;
+              color: #2563eb;
+              font-weight: bold;
+            }
+
+            .status {
+              padding: 7px 13px;
+              border-radius: 30px;
+              font-size: 11px;
+              font-weight: bold;
+            }
+
+            .paid {
+              background: #dcfce7;
+              color: #15803d;
+            }
+
+            .partial {
+              background: #fef3c7;
+              color: #b45309;
+            }
+
+            .unpaid {
+              background: #fee2e2;
+              color: #b91c1c;
+            }
+
+            .supplier-details {
+              display: grid;
+              grid-template-columns: repeat(3, 1fr);
+              gap: 15px;
+              background: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 8px;
+              padding: 14px;
+              margin-bottom: 22px;
+            }
+
+            .supplier-details div {
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+            }
+
+            .supplier-details span {
+              color: #64748b;
+              font-size: 10px;
+            }
+
+            .supplier-details strong {
+              color: #1e293b;
+              font-size: 12px;
+            }
+
+            h3 {
+              margin: 0 0 12px;
+              font-size: 14px;
+            }
+
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              margin-bottom: 20px;
+            }
+
+            th {
+              background: #f1f5f9;
+              color: #475569;
+              text-align: left;
+              font-size: 10px;
+              text-transform: uppercase;
+              padding: 11px 9px;
+            }
+
+            td {
+              padding: 11px 9px;
+              border-bottom: 1px solid #e2e8f0;
+              font-size: 11px;
+            }
+
+            td small {
+              color: #64748b;
+            }
+
+            .payment-section {
+              width: 100%;
+              max-width: 380px;
+              margin-left: auto;
+              padding: 15px;
+              background: #f8fafc;
+              border: 1px solid #e2e8f0;
+              border-radius: 8px;
+            }
+
+            .payment-row {
+              display: flex;
+              justify-content: space-between;
+              gap: 15px;
+              padding: 7px 0;
+              color: #475569;
+            }
+
+            .payment-row strong {
+              color: #1e293b;
+            }
+
+            .settled {
+              border-top: 1px solid #cbd5e1;
+              margin-top: 5px;
+              padding-top: 12px;
+              color: #15803d;
+              font-weight: bold;
+            }
+
+            .settled strong {
+              color: #15803d;
+            }
+
+            .balance {
+              border-top: 1px solid #cbd5e1;
+              margin-top: 5px;
+              padding-top: 12px;
+              color: #b45309;
+              font-weight: bold;
+            }
+
+            .balance strong {
+              color: #b45309;
+              font-size: 14px;
+            }
+
+            .footer {
+              margin-top: 25px;
+              padding-top: 12px;
+              border-top: 1px solid #e2e8f0;
+              text-align: center;
+              color: #94a3b8;
+              font-size: 10px;
+            }
+
+            @media print {
+              body {
+                padding: 15px;
+              }
+
+              .invoice {
+                page-break-inside: avoid;
+              }
+
+              @page {
+                size: A4;
+                margin: 12mm;
+              }
+            }
+          </style>
+        </head>
+
+        <body>
+          <div class="report-header">
+            <div>
+              <h1>
+                ${selected ? "Purchase Invoice" : "Purchase History Report"}
+              </h1>
+
+              <p>
+                ${
+                  selected
+                    ? "Individual supplier purchase record"
+                    : "Complete supplier purchase records"
+                }
+              </p>
+            </div>
+
+            <div class="report-date">
+              <strong>Steel Store</strong>
+              <br />
+              Printed: ${escapeHTML(new Date().toLocaleDateString("en-PK"))}
+            </div>
+          </div>
+
+          ${invoicesHTML}
+
+          <div class="footer">
+            ${
+              selected
+                ? "Individual Purchase Invoice"
+                : "Complete Purchase History Report"
+            }
+          </div>
+
+          <script>
+            window.onload = function () {
+              window.focus();
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+  };
 
   // -----------------------------------
   // INPUT HANDLERS
@@ -544,7 +1000,6 @@ function Purchases() {
       advanceApplied: appliedAdvance,
       advanceGenerated: extraAdvance,
 
-      notes: formData.notes.trim(),
       createdAt,
     };
 
@@ -777,13 +1232,25 @@ function Purchases() {
           </p>
         </div>
 
-        <button
-          onClick={openPurchaseModal}
-          className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
-        >
-          <Plus size={18} />
-          New Purchase
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            type="button"
+            onClick={() => handlePrintPurchase()}
+            disabled={purchases.length === 0}
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Printer size={18} />
+            Print All Purchases
+          </button>
+
+          <button
+            onClick={openPurchaseModal}
+            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700"
+          >
+            <Plus size={18} />
+            New Purchase
+          </button>
+        </div>
       </div>
 
       {/* STAT CARDS */}
@@ -895,7 +1362,7 @@ function Purchases() {
 
         {/* TABLE */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] text-left">
+          <table className="w-full min-w-[1000px] text-left">
             <thead className="bg-slate-50">
               <tr className="text-xs uppercase tracking-wider text-slate-500">
                 <th className="px-6 py-4">Invoice</th>
@@ -906,7 +1373,7 @@ function Purchases() {
                 <th className="px-6 py-4">Paid</th>
                 <th className="px-6 py-4">Balance</th>
                 <th className="px-6 py-4">Status</th>
-                <th className="px-6 py-4">Action</th>
+                <th className="px-6 py-4">Actions</th>
               </tr>
             </thead>
 
@@ -958,13 +1425,25 @@ function Purchases() {
                     </td>
 
                     <td className="px-6 py-4">
-                      <button
-                        onClick={() => setSelectedPurchase(purchase)}
-                        title="View Purchase Details"
-                        className="rounded-lg bg-blue-50 p-2 text-blue-600 transition hover:bg-blue-100"
-                      >
-                        <Eye size={17} />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handlePrintPurchase(purchase)}
+                          title="Print This Purchase"
+                          className="rounded-lg bg-emerald-50 p-2 text-emerald-600 transition hover:bg-emerald-100"
+                        >
+                          <Printer size={17} />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedPurchase(purchase)}
+                          title="View Purchase Details"
+                          className="rounded-lg bg-blue-50 p-2 text-blue-600 transition hover:bg-blue-100"
+                        >
+                          <Eye size={17} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1467,43 +1946,26 @@ function Purchases() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        Paid Amount (Rs.)
-                      </label>
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-slate-700">
+                      Paid Amount (Rs.)
+                    </label>
 
-                      <input
-                        type="number"
-                        name="paid"
-                        min="0"
-                        step="any"
-                        value={formData.paid}
-                        onChange={handleChange}
-                        placeholder="Enter payment amount"
-                        className="purchase-input paid-amount-input"
-                      />
+                    <input
+                      type="number"
+                      name="paid"
+                      min="0"
+                      step="any"
+                      value={formData.paid}
+                      onChange={handleChange}
+                      placeholder="Enter payment amount"
+                      className="purchase-input paid-amount-input"
+                    />
 
-                      <p className="mt-1 text-xs text-slate-400">
-                        Enter the actual cash amount paid to the supplier. Extra
-                        payment will become advance.
-                      </p>
-                    </div>
-
-                    <div>
-                      <label className="mb-2 block text-sm font-medium text-slate-700">
-                        Notes
-                      </label>
-
-                      <input
-                        type="text"
-                        name="notes"
-                        value={formData.notes}
-                        onChange={handleChange}
-                        placeholder="Optional purchase notes"
-                        className="purchase-input"
-                      />
-                    </div>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Enter the actual cash amount paid to the supplier. Extra
+                      payment will become advance.
+                    </p>
                   </div>
                 </section>
 
@@ -1798,17 +2260,15 @@ function Purchases() {
                 </div>
               </div>
 
-              {selectedPurchase.notes && (
-                <div className="rounded-xl border border-slate-100 p-4">
-                  <p className="mb-1 text-xs font-semibold uppercase text-slate-400">
-                    Purchase Notes
-                  </p>
-
-                  <p className="text-sm text-slate-600">
-                    {selectedPurchase.notes}
-                  </p>
-                </div>
-              )}
+              {/* PRINT BUTTON */}
+              <button
+                type="button"
+                onClick={() => handlePrintPurchase(selectedPurchase)}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                <Printer size={18} />
+                Print This Purchase
+              </button>
             </div>
           </Modal>
         )}

@@ -18,6 +18,7 @@ import {
   CircleDollarSign,
   SlidersHorizontal,
   RotateCcw,
+  AlertCircle,
 } from "lucide-react";
 
 // ===================================
@@ -69,6 +70,14 @@ function Products() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+
+  // Shared warning and delete confirmation modals
+  const [alertMessage, setAlertMessage] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
+
+  const showAlert = (message) => {
+    setAlertMessage(String(message));
+  };
 
   const [form, setForm] = useState(emptyForm);
   const [isCustomUnit, setIsCustomUnit] = useState(false);
@@ -306,12 +315,12 @@ function Products() {
       form.stock === "" ||
       form.minStock === ""
     ) {
-      alert("Please fill in all required fields.");
+      showAlert("Please fill in all required fields.");
       return;
     }
 
     if (!finalUnit || finalUnit === "Custom") {
-      alert("Please enter a valid custom unit.");
+      showAlert("Please enter a valid custom unit.");
       return;
     }
 
@@ -320,7 +329,7 @@ function Products() {
     );
 
     if (!categoryExists) {
-      alert("Please select a valid category.");
+      showAlert("Please select a valid category.");
       return;
     }
 
@@ -334,7 +343,7 @@ function Products() {
       stock < 0 ||
       minStock < 0
     ) {
-      alert("Please enter valid positive numbers.");
+      showAlert("Please enter valid positive numbers.");
       return;
     }
 
@@ -380,13 +389,17 @@ function Products() {
   // ===================================
 
   const handleDelete = (id) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this product? This action cannot be undone.",
+    setDeleteConfirmation(id);
+  };
+
+  const confirmDelete = () => {
+    if (deleteConfirmation === null) return;
+
+    setProducts((previous) =>
+      previous.filter((product) => product.id !== deleteConfirmation),
     );
 
-    if (!confirmed) return;
-
-    setProducts((previous) => previous.filter((product) => product.id !== id));
+    setDeleteConfirmation(null);
   };
 
   // ===================================
@@ -1008,6 +1021,99 @@ function Products() {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* WARNING MODAL - SAME DESIGN AS POS */}
+
+      <AnimatePresence>
+        {alertMessage && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              transition={{ duration: 0.2 }}
+              role="alertdialog"
+              aria-modal="true"
+              className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl"
+            >
+              <div className="px-6 pt-7 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 ring-8 ring-amber-50/60">
+                  <AlertCircle size={34} strokeWidth={2} />
+                </div>
+
+                <h2 className="mt-5 text-xl font-bold text-slate-800">
+                  Attention Required
+                </h2>
+
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-500">
+                  {alertMessage}
+                </p>
+              </div>
+
+              <div className="p-6 pt-5">
+                <button
+                  type="button"
+                  onClick={() => setAlertMessage("")}
+                  className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 active:scale-[0.98]"
+                >
+                  Okay, Got It
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DELETE CONFIRMATION MODAL - SAME CENTERED DESIGN */}
+
+      <AnimatePresence>
+        {deleteConfirmation !== null && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              transition={{ duration: 0.2 }}
+              role="alertdialog"
+              aria-modal="true"
+              className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl"
+            >
+              <div className="px-6 pt-7 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 ring-8 ring-amber-50/60">
+                  <AlertTriangle size={34} strokeWidth={2} />
+                </div>
+
+                <h2 className="mt-5 text-xl font-bold text-slate-800">
+                  Delete Product?
+                </h2>
+
+                <p className="mt-2 text-sm leading-6 text-slate-500">
+                  Are you sure you want to delete this product? This action
+                  cannot be undone.
+                </p>
+              </div>
+
+              <div className="flex gap-3 p-6 pt-5">
+                <button
+                  type="button"
+                  onClick={() => setDeleteConfirmation(null)}
+                  className="flex-1 rounded-xl border border-slate-200 bg-white py-3 text-sm font-bold text-slate-600 transition hover:bg-slate-50 active:scale-[0.98]"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={confirmDelete}
+                  className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-bold text-white shadow-lg shadow-red-200 transition hover:bg-red-700 active:scale-[0.98]"
+                >
+                  Yes, Delete
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

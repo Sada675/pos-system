@@ -25,6 +25,7 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  AlertCircle,
 } from "lucide-react";
 
 // ==================================================
@@ -60,7 +61,6 @@ const escapeHTML = (value) =>
 
 // ==================================================
 // PHONE NORMALIZATION
-// Must match CustomersContext normalization
 // ==================================================
 
 const normalizePakistanPhone = (phone) => {
@@ -202,6 +202,20 @@ function POS() {
 
   const { customers, addOrUpdateCustomer, updateCustomerAfterSale } =
     useCustomers();
+
+  // ==================================================
+  // WARNING MODAL
+  // ==================================================
+
+  const [alertMessage, setAlertMessage] = useState("");
+
+  const showAlert = (message) => {
+    setAlertMessage(String(message));
+  };
+
+  const closeAlert = () => {
+    setAlertMessage("");
+  };
 
   // ==================================================
   // PRODUCT DATA
@@ -441,7 +455,7 @@ function POS() {
     if (isProcessing) return;
 
     if (product.stock <= 0) {
-      alert("This product is out of stock.");
+      showAlert("This product is out of stock.");
       return;
     }
 
@@ -456,7 +470,7 @@ function POS() {
         const maximumQuantity = product.stock + initialQuantity;
 
         if (currentQuantity + 1 > maximumQuantity) {
-          alert(
+          showAlert(
             `Maximum available quantity is ${maximumQuantity} ${product.unit}.`,
           );
 
@@ -525,7 +539,7 @@ function POS() {
         }
 
         if (quantity > maximumQuantity) {
-          alert(
+          showAlert(
             `Maximum available quantity is ${maximumQuantity} ${item.unit}.`,
           );
 
@@ -560,7 +574,7 @@ function POS() {
         const nextQuantity = Number(item.quantity || 0) + 1;
 
         if (nextQuantity > maximumQuantity) {
-          alert(
+          showAlert(
             `Maximum available quantity is ${maximumQuantity} ${item.unit}.`,
           );
 
@@ -642,6 +656,8 @@ function POS() {
     setWasInvoiceUpdated(false);
 
     setEditingSale(null);
+
+    setAlertMessage("");
   };
 
   // ==================================================
@@ -663,7 +679,7 @@ function POS() {
     const nameError = validateCustomerName(customerName);
 
     if (nameError) {
-      alert(nameError);
+      showAlert(nameError);
       return;
     }
 
@@ -671,7 +687,7 @@ function POS() {
     const phoneError = validatePakistanPhone(customerPhone);
 
     if (phoneError) {
-      alert(phoneError);
+      showAlert(phoneError);
       return;
     }
 
@@ -681,13 +697,13 @@ function POS() {
     try {
       getInvoiceYear(checkoutDate);
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
       return;
     }
 
     // CART VALIDATION
     if (cart.length === 0) {
-      alert("Please add products to the cart first.");
+      showAlert("Please add products to the cart first.");
       return;
     }
 
@@ -697,7 +713,7 @@ function POS() {
           !Number.isFinite(Number(item.quantity)) || Number(item.quantity) <= 0,
       )
     ) {
-      alert("Please enter a valid quantity.");
+      showAlert("Please enter a valid quantity.");
       return;
     }
 
@@ -707,7 +723,7 @@ function POS() {
       discountInput < 0 ||
       discountInput > subtotal
     ) {
-      alert("Please enter a valid discount.");
+      showAlert("Please enter a valid discount.");
       return;
     }
 
@@ -718,7 +734,7 @@ function POS() {
           !Number.isFinite(Number(item.price)) || Number(item.price) < 0,
       )
     ) {
-      alert("Invalid product price detected.");
+      showAlert("Invalid product price detected.");
       return;
     }
 
@@ -727,7 +743,7 @@ function POS() {
       !Number.isFinite(Number(paidAmount || 0)) ||
       Number(paidAmount || 0) < 0
     ) {
-      alert("Please enter a valid received amount.");
+      showAlert("Please enter a valid received amount.");
       return;
     }
 
@@ -736,7 +752,7 @@ function POS() {
       const latestProduct = products.find((product) => product.id === item.id);
 
       if (!latestProduct) {
-        alert(`${item.name} is no longer available.`);
+        showAlert(`${item.name} is no longer available.`);
         return;
       }
 
@@ -749,7 +765,7 @@ function POS() {
       const additionalQuantity = newQuantity - oldQuantity;
 
       if (additionalQuantity > currentStock) {
-        alert(
+        showAlert(
           `Insufficient stock for ${item.name}.\nAvailable additional stock: ${currentStock} ${item.unit}.`,
         );
 
@@ -848,23 +864,18 @@ function POS() {
         // UPDATE EXISTING SALE
         // ==================================================
 
-        // Always get the latest old invoice before updating.
         const oldSale = getSaleById(editingSale.id) || editingSale;
 
         if (!oldSale) {
           throw new Error("Original invoice could not be found.");
         }
 
-        // Update sale and receive updated sale object.
         const savedSale = updateSale(oldSale.id, sale);
 
         if (!savedSale) {
           throw new Error("Unable to update invoice.");
         }
 
-        // IMPORTANT:
-        // Update old and new customer records.
-        // Passing sales lets CustomersContext recalculate lastPurchase.
         updateCustomerAfterSale(oldSale, savedSale, sales);
 
         setWasInvoiceUpdated(true);
@@ -903,7 +914,9 @@ function POS() {
     } catch (error) {
       console.error("Checkout error:", error);
 
-      alert(error.message || "Something went wrong while completing the sale.");
+      showAlert(
+        error.message || "Something went wrong while completing the sale.",
+      );
     } finally {
       setIsProcessing(false);
     }
@@ -919,7 +932,7 @@ function POS() {
     const printWindow = window.open("", "_blank", "width=900,height=700");
 
     if (!printWindow) {
-      alert("Please allow pop-ups to print the invoice.");
+      showAlert("Please allow pop-ups to print the invoice.");
       return;
     }
 
@@ -2024,7 +2037,65 @@ function POS() {
         </div>
       </div>
 
-      {/* SUCCESS MODAL */}
+      {/* ==================================================
+          WARNING MODAL
+      ================================================== */}
+
+      <AnimatePresence>
+        {alertMessage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
+            onClick={closeAlert}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 15 }}
+              transition={{ duration: 0.2 }}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="warning-title"
+              className="w-full max-w-sm overflow-hidden rounded-3xl bg-white shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-6 pt-7 text-center">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-50 text-amber-500 ring-8 ring-amber-50/60">
+                  <AlertCircle size={34} strokeWidth={2} />
+                </div>
+
+                <h2
+                  id="warning-title"
+                  className="mt-5 text-xl font-bold text-slate-800"
+                >
+                  Attention Required
+                </h2>
+
+                <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-500">
+                  {alertMessage}
+                </p>
+              </div>
+
+              <div className="p-6 pt-5">
+                <button
+                  type="button"
+                  onClick={closeAlert}
+                  autoFocus
+                  className="w-full rounded-xl bg-blue-600 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition hover:bg-blue-700 active:scale-[0.98]"
+                >
+                  Okay, Got It
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================================================
+          SUCCESS MODAL
+      ================================================== */}
 
       <AnimatePresence>
         {completedSale && (
